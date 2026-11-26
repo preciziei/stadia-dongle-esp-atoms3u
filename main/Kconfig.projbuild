@@ -7,7 +7,7 @@ menu "Stadia dongle"
             default y
             help
                 Enable the low-priority status LED task. Disable this for boards
-                without an RGB LED or if GPIO 48 is used for other hardware.
+                without an RGB LED.
 
         choice DONGLE_LED_TYPE
             prompt "Status LED type"
@@ -24,11 +24,11 @@ menu "Stadia dongle"
         config DONGLE_LED_GPIO
             int "Addressable RGB LED GPIO"
             depends on DONGLE_LED_ENABLED && DONGLE_LED_TYPE_ADDRESSABLE
-            default 48
+            default 35
             range 0 48
             help
-                GPIO used by the board's addressable RGB LED. Many ESP32-S3
-                dev boards use GPIO 48.
+                GPIO used by the board's addressable RGB LED. M5Stack AtomS3U
+                uses GPIO 35.
 
         config DONGLE_LED_BRIGHTNESS
             int "Status LED brightness"
@@ -40,5 +40,39 @@ menu "Stadia dongle"
                 for small onboard LEDs.
 
     endmenu
+
+    menu "Dongle board button"
+
+        config DONGLE_BUTTON_ENABLED
+            bool "Enable onboard physical button"
+            default y
+            help
+                Poll the board's user button (active-low with internal pull-up).
+                Short press starts the Wi-Fi Web UI and can send USB remote wake.
+
+        config DONGLE_BUTTON_GPIO
+            int "Onboard button GPIO"
+            depends on DONGLE_BUTTON_ENABLED
+            default 41
+            range 0 48
+            help
+                GPIO for the active-low user button. M5Stack AtomS3U uses GPIO 41.
+
+    endmenu
+
+    config DONGLE_IR_TX_HOLD_LOW
+        bool "Hold IR transmitter GPIO low"
+        default y
+        help
+            Drive the onboard IR LED data pin low so it never transmits.
+            M5Stack AtomS3U IR TX is GPIO 12.
+
+    config DONGLE_IR_TX_GPIO
+        int "IR transmitter GPIO"
+        depends on DONGLE_IR_TX_HOLD_LOW
+        default 12
+        range 0 48
+        help
+            GPIO connected to the IR emitter. Held as output low at boot.
 
 endmenu

@@ -4,26 +4,38 @@ ESP32-S3 firmware that bridges Google Stadia controllers (Bluetooth LE) to a PC
 as a wired **Xbox 360 controller** + **HID mouse** + **HID keyboard**. Wi-Fi
 captive portal for pairing, button remapping, and OTA updates.
 
-Forked from [Scalee/stadia-dongle](https://github.com/Scalee/stadia-dongle).
+Custom fit for **M5Stack AtomS3U**, forked from
+[danzig666/stadia-dongle-esp](https://github.com/danzig666/stadia-dongle-esp)
+(itself from [Scalee/stadia-dongle](https://github.com/Scalee/stadia-dongle)).
 
-> ### ⚡ [Flash the firmware](https://danzig666.github.io/stadia-dongle-esp/) · 🛠️ [Configure over USB](https://danzig666.github.io/stadia-dongle-esp/config.html)
+> ### ⚡ [Flash the firmware](https://preciziei.github.io/stadia-dongle-esp-atoms3u/) · 🛠️ [Configure over USB](https://preciziei.github.io/stadia-dongle-esp-atoms3u/config.html)
 > Both run in desktop Chrome/Edge, talk directly to the device, and need no software installed.
 
 ## Requirements
 
-- **ESP32-S3** module with native USB OTG
-- **4 MB** flash (default) or 16 MB - configurable via `sdkconfig.defaults`
-- Optional: WS2812/SK6812 RGB LED on GPIO 48 (configurable in menuconfig)
+- **M5Stack AtomS3U** (ESP32-S3FN8, **8 MB** flash, no PSRAM) or compatible
+  ESP32-S3 with native USB OTG
+- WS2812 RGB status LED on **GPIO 35** (configurable in menuconfig)
+- Onboard user button on **GPIO 41** (active-low, internal pull-up)
+- Onboard IR TX on **GPIO 12** is held low and never driven high
+- Single **USB-A** port used for TinyUSB (GPIO 19/20) — no separate UART bridge
 - [ESP-IDF v6.x](https://github.com/espressif/esp-idf)
+
+Legacy 4 MB boards can still build with `sdkconfig.defaults.4mb` /
+`partitions_4mb.csv`.
 
 ## Flashing
 
+The AtomS3U has a **single USB-A** port (USB OTG + Serial/JTAG on the same
+PHY). Put the board in download mode, then flash over that port.
+
 No software needed: use the
-[web installer](https://danzig666.github.io/stadia-dongle-esp/) in Chrome or
-Edge. Connect the ESP32-S3 via the COM/UART USB port, click Install, then move
-it to the native USB port after flashing. Once flashed, the
-[USB configuration page](https://danzig666.github.io/stadia-dongle-esp/config.html)
-manages pairing and settings over the same cable.
+[web installer](https://preciziei.github.io/stadia-dongle-esp-atoms3u/) in Chrome or
+Edge, connect the AtomS3U USB-A port, and click Install. After reboot the same
+port enumerates as the Xbox/HID device. The
+[USB configuration page](https://preciziei.github.io/stadia-dongle-esp-atoms3u/config.html)
+manages pairing and settings over that cable. The installer is the `docs/`
+folder, deployed to GitHub Pages from this repo.
 
 ## Build
 
@@ -35,9 +47,9 @@ idf.py build
 On Windows, double-click `build_firmware.cmd` for the same build. From a
 terminal, pass `--no-pause` to suppress the final prompt.
 
-`sdkconfig.defaults` pre-configures NimBLE central, TinyUSB, 240 MHz CPU, and
-production logging. The default partition table fits 4 MB flash with dual OTA
-slots.
+`sdkconfig.defaults` pre-configures NimBLE central, TinyUSB, 240 MHz CPU,
+AtomS3U pins, and production logging. The default partition table fits **8 MB**
+flash with dual OTA slots (~3.875 MB each).
 
 ### Flash
 
@@ -56,7 +68,9 @@ flash_firmware.cmd COM5 --dry-run --no-pause
 
 To view live ESP32 logs, double-click `monitor_logs.cmd` and enter the COM port,
 or run `monitor_logs.cmd COM5` from a terminal. Press **Ctrl+]** to stop the
-monitor. Run `build_firmware.cmd` first if the build folder is missing.
+monitor. Run `build_firmware.cmd` first if the build folder is missing. Note:
+with TinyUSB owning the USB device after boot, Serial/JTAG console may only be
+available in download mode or via an external UART if you wire one.
 
 Merged binary for the [ESP Web Tools](https://esphome.github.io/esp-web-tools/)
 installer:
@@ -64,7 +78,7 @@ installer:
 ```sh
 esptool.py --chip esp32s3 merge_bin \
   -o docs/firmware-merged.bin \
-  --flash_mode dio --flash_freq 80m --flash_size 4MB \
+  --flash_mode dio --flash_freq 80m --flash_size 8MB \
   0x0 build/bootloader/bootloader.bin \
   0x8000 build/partition_table/partition-table.bin \
   0xf000 build/ota_data_initial.bin \
@@ -74,20 +88,24 @@ esptool.py --chip esp32s3 merge_bin \
 The application offset must be `0x20000` to match `ota_0` in `partitions.csv`.
 
 On Windows, run `create_merged_fw.cmd`. It builds first when required and
-creates `docs/firmware-merged.bin`. Pass `16MB` when targeting a 16 MB board.
-`flash_merged.cmd COM5` writes that image to a device over serial.
+creates `docs/firmware-merged.bin` (default **8MB**). Pass `4MB` or `16MB`
+only when targeting a different flash size header. `flash_merged.cmd COM5`
+writes that image to a device over serial.
 
 Host the `docs/` folder and open `docs/index.html` in Chrome/Edge.
 
 ## Setup
 
-1. Flash the firmware and plug the dongle into the native USB port.
+1. Flash the firmware over the AtomS3U USB-A port (download mode), then let it
+   reboot so TinyUSB enumerates the Xbox/HID device on the same cable.
 2. Put the controller in Bluetooth mode (hold **Stadia + Y** until orange
    flash). A dongle with no bonds auto-pairs it -- no page or app needed.
 3. Once bonded, the dongle auto-connects on future boots.
 4. To remap buttons or change settings, open the
-   [USB configuration page](https://danzig666.github.io/stadia-dongle-esp/config.html)
-   in Chrome/Edge, or start the Wi-Fi Web UI (below).
+   [USB configuration page](https://preciziei.github.io/stadia-dongle-esp-atoms3u/config.html)
+   in Chrome/Edge, or start the Wi-Fi Web UI (below). Short-press the onboard
+   button (GPIO 41) to start the Web UI; if the host is sleeping, that press
+   also requests USB remote wake.
 
 ## Controller Modes
 
@@ -163,8 +181,8 @@ volume/mute, media playback, remote wake only, and Start Web UI.
 
 ## USB Configuration (no Wi-Fi needed)
 
-With the dongle plugged into its native USB port, open the
-[USB configuration page](https://danzig666.github.io/stadia-dongle-esp/config.html)
+With the dongle plugged into its USB-A port, open the
+[USB configuration page](https://preciziei.github.io/stadia-dongle-esp-atoms3u/config.html)
 in Chrome or Edge. It talks to the dongle over WebHID — pairing, button
 remapping, the controller list, live input and Wi-Fi control, without joining
 the dongle's AP. Protocol details in
@@ -199,6 +217,8 @@ BIOS/OS USB wake support. Not always working.
 
 ## LED Reference
 
+Status LED is the onboard WS2812 on **GPIO 35** (AtomS3U).
+
 | Pattern                        | Meaning |
 |--------------------------------|---------|
 | White pulse                    | Booting |
@@ -211,6 +231,14 @@ BIOS/OS USB wake support. Not always working.
 | Red pulsing                    | Error |
 | Purple/yellow alternating      | OTA firmware update |
 | Brief white flash              | Remote wake sent |
+
+## Board button / IR
+
+| Hardware | GPIO | Behavior |
+|----------|------|----------|
+| User button | 41 | Active-low + pull-up. Short press starts Wi-Fi Web UI; also sends USB remote wake when suspended |
+| IR transmitter | 12 | Held as output low — never driven high (IR unused) |
+| USB D− / D+ | 19 / 20 | Native USB OTG for TinyUSB (Xbox + HID) |
 
 ## Architecture
 

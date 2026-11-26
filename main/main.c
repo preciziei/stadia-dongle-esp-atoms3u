@@ -18,6 +18,7 @@
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 
+#include "board_button.h"
 #include "bridge.h"
 #include "usb_xbox.h"
 #include "ble_central.h"
@@ -96,6 +97,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     config_store_init();
+    board_hw_init();
     status_led_init();
 
     // Create inter-task queues

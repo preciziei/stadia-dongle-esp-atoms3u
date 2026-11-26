@@ -9,7 +9,10 @@ Idea borrowed from jazz-zzzz/stadia-dongle-esp.
 ## Boot & USB
 
 - [ ] Fresh flash via the web installer boots (LED: white pulse, then heartbeat).
-- [ ] Dongle enumerates as **Xbox 360 Controller for Windows** on the native USB port.
+- [ ] Dongle enumerates as **Xbox 360 Controller for Windows** on the AtomS3U USB-A port (TinyUSB).
+- [ ] Onboard RGB LED (GPIO 35) shows expected status colors.
+- [ ] Onboard button (GPIO 41) starts the Wi-Fi Web UI; when the host is suspended it also requests remote wake.
+- [ ] IR pin (GPIO 12) stays inactive (no IR activity).
 - [ ] `joy.cpl` (or a gamepad tester) shows the pad with no phantom input at rest.
 - [ ] After a reboot with bonds stored, the Wi-Fi AP does **not** start.
 - [ ] On a fresh flash (no bonds), the setup AP **does** start.

@@ -3,7 +3,7 @@ idf_component_register(
          "dongle_state.c" "status_led.c" "controller_manager.c"
          "config_store.c" "web_server.c" "captive_portal.c"
          "hid_extra.c" "hid_mouse.c" "usb_config_protocol.c"
-         "button_actions.c" "mouse_mode.c"
+         "button_actions.c" "mouse_mode.c" "board_button.c"
     INCLUDE_DIRS "."
     REQUIRES nvs_flash bt esp_timer driver esp_driver_rmt esp_wifi esp_netif esp_http_server app_update esp_app_format esp_coex
     EMBED_TXTFILES "index.html"
