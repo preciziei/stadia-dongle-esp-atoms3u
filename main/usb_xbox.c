@@ -27,9 +27,11 @@ static const char *TAG = "USB";
 static SemaphoreHandle_t s_flag_lock;
 static bool s_last_polled_suspended;
 static volatile bool s_resync_reports_requested;
-static volatile bool s_reenumerate_requested;
-static int64_t s_last_xfer_done_us;
-static bool s_detected_asleep;
+static volatile bool s_host_idle;
+static uint32_t s_logged_in_count;
+static int64_t s_last_in_log_us;
+
+#define USB_HOST_IDLE_US 3000000u
 
 static void set_resync_requested(bool val)
 {
@@ -38,31 +40,20 @@ static void set_resync_requested(bool val)
     if (s_flag_lock) xSemaphoreGive(s_flag_lock);
 }
 
-static void set_reenumerate_requested(bool val)
+static bool take_resync_if_bus_ready(void)
 {
-    if (s_flag_lock) xSemaphoreTake(s_flag_lock, portMAX_DELAY);
-    s_reenumerate_requested = val;
-    if (s_flag_lock) xSemaphoreGive(s_flag_lock);
-}
-
-static bool get_and_clear_resync_requested(void)
-{
-    if (!s_flag_lock) return false;
+    /* tud_* is called outside s_flag_lock. The TinyUSB task can be inside
+     * the event callback, holding its own lock and waiting for this one. */
+    if (tud_suspended() || !tud_ready() || !s_flag_lock) return false;
     xSemaphoreTake(s_flag_lock, portMAX_DELAY);
-    bool val = s_resync_reports_requested;
-    s_resync_reports_requested = false;
+    bool run = s_resync_reports_requested;
+    if (run) s_resync_reports_requested = false;
     xSemaphoreGive(s_flag_lock);
-    return val;
-}
-
-static bool get_and_clear_reenumerate_requested(void)
-{
-    if (!s_flag_lock) return false;
-    xSemaphoreTake(s_flag_lock, portMAX_DELAY);
-    bool val = s_reenumerate_requested;
-    s_reenumerate_requested = false;
-    xSemaphoreGive(s_flag_lock);
-    return val;
+    if (run && (tud_suspended() || !tud_ready())) {
+        set_resync_requested(true);
+        return false;
+    }
+    return run;
 }
 
 static void request_usb_report_resync(void)
@@ -108,6 +99,9 @@ static void tinyusb_event_handler(tinyusb_event_t *event, void *arg)
     case TINYUSB_EVENT_ATTACHED:
         dongle_state_set_usb_configured(true);
         dongle_state_set_usb_suspended(false);
+        dongle_state_set_usb_host_idle(false);
+        s_host_idle = false;
+        xbox_note_bus_activity();
         request_usb_report_resync();
         ESP_LOGI(TAG, "USB attached/configured");
         break;
@@ -115,14 +109,16 @@ static void tinyusb_event_handler(tinyusb_event_t *event, void *arg)
         dongle_state_set_usb_configured(false);
         dongle_state_set_usb_suspended(false);
         dongle_state_set_usb_remote_wakeup_enabled(false);
+        dongle_state_set_usb_host_idle(false);
+        s_host_idle = false;
         ESP_LOGI(TAG, "USB detached");
         break;
 #ifdef CONFIG_TINYUSB_SUSPEND_CALLBACK
     case TINYUSB_EVENT_SUSPENDED:
         dongle_state_set_usb_suspended(true);
+        dongle_state_set_usb_host_idle(false);
+        s_host_idle = false;
         dongle_state_set_usb_remote_wakeup_enabled(event->suspended.remote_wakeup);
-        set_resync_requested(false);
-        set_reenumerate_requested(false);
         web_server_notify_usb_suspend(true);
         ESP_LOGI(TAG, "USB suspended, remote_wakeup_enabled=%d", event->suspended.remote_wakeup);
         break;
@@ -130,7 +126,10 @@ static void tinyusb_event_handler(tinyusb_event_t *event, void *arg)
 #ifdef CONFIG_TINYUSB_RESUME_CALLBACK
     case TINYUSB_EVENT_RESUMED:
         dongle_state_set_usb_suspended(false);
-        set_reenumerate_requested(true);
+        dongle_state_set_usb_remote_wakeup_enabled(false);
+        dongle_state_set_usb_host_idle(false);
+        s_host_idle = false;
+        xbox_note_bus_activity();
         request_usb_report_resync();
         web_server_notify_usb_suspend(false);
         ESP_LOGI(TAG, "USB resumed");
@@ -151,34 +150,38 @@ static void usb_state_monitor_task(void *arg)
             dongle_state_set_usb_suspended(suspended);
             web_server_notify_usb_suspend(suspended);
             if (suspended) {
-                /* Polled suspend: assume remote wake is allowed; the event-
-                   driven TINYUSB_EVENT_SUSPENDED callback will refine this
-                   if it fires. Also clear any pending resync so it won't
-                   trigger a re-enumeration that breaks the suspend state. */
-                dongle_state_set_usb_remote_wakeup_enabled(true);
-                set_resync_requested(false);
-                set_reenumerate_requested(false);
+                /* Remote wake is armed only by TINYUSB_EVENT_SUSPENDED.
+                 * Assuming it here made the button look like it woke a host
+                 * that had not actually suspended this device. */
+                dongle_state_set_usb_host_idle(false);
+                s_host_idle = false;
             } else {
                 dongle_state_set_usb_remote_wakeup_enabled(false);
-                set_reenumerate_requested(true);
+                dongle_state_set_usb_host_idle(false);
+                s_host_idle = false;
+                xbox_note_bus_activity();
                 request_usb_report_resync();
             }
             ESP_LOGI(TAG, "USB poll state: suspended=%d ready=%d mounted=%d",
                      suspended, tud_ready(), tud_mounted());
         }
-        if (get_and_clear_resync_requested() && !tud_suspended() && tud_ready()) {
-            if (get_and_clear_reenumerate_requested()) {
-                ESP_LOGW(TAG, "USB soft re-enumeration after host resume");
-                tud_disconnect();
-                vTaskDelay(pdMS_TO_TICKS(300));
-                tud_connect();
-                vTaskDelay(pdMS_TO_TICKS(900));
-            } else {
-                vTaskDelay(pdMS_TO_TICKS(120));
-            }
+        if (take_resync_if_bus_ready()) {
+            vTaskDelay(pdMS_TO_TICKS(120));
             xbox_recover_after_resume();
             enqueue_latest_reports();
+            xbox_note_bus_activity();
             ESP_LOGI(TAG, "USB reports resynchronised after resume/attach");
+        }
+
+        int64_t now_us = esp_timer_get_time();
+        if (now_us - s_last_in_log_us > 1000000) {
+            uint32_t count = xbox_in_complete_count();
+            if (count != s_logged_in_count) {
+                ESP_LOGI(TAG, "USB IN completions %u (+%u over 1 s)",
+                         (unsigned)count, (unsigned)(count - s_logged_in_count));
+                s_logged_in_count = count;
+            }
+            s_last_in_log_us = now_us;
         }
         vTaskDelay(pdMS_TO_TICKS(250));
     }
@@ -192,8 +195,11 @@ static const tusb_desc_device_t s_device_desc = {
     .bDeviceSubClass = 0x02,
     .bDeviceProtocol = 0x01,
     .bMaxPacketSize0 = 64,
+    /* 0x028E is an Xbox 360 pad. 0x0289 is the original Xbox in Linux xpad,
+     * so that driver parsed these 20-byte reports with the wrong layout.
+     * Windows binds on the XUSB20 compatible ID and ignores the PID. */
     .idVendor = 0x045E,
-    .idProduct = 0x0289,
+    .idProduct = 0x028E,
     .bcdDevice = 0x0114,
     .iManufacturer = 1,
     .iProduct = 2,
@@ -277,7 +283,6 @@ void usb_xbox_task(void *arg)
     ble_to_usb_msg_t msg = {0};
     ble_to_usb_msg_t pending[DONGLE_MAX_CONTROLLERS] = {0};
     bool have_report[DONGLE_MAX_CONTROLLERS] = {0};
-    TickType_t busy_since[DONGLE_MAX_CONTROLLERS] = {0};
     TickType_t last_sent[DONGLE_MAX_CONTROLLERS] = {0};
     uint8_t last_report[DONGLE_MAX_CONTROLLERS][DONGLE_XBOX_REPORT_SIZE];
     bool last_report_valid[DONGLE_MAX_CONTROLLERS] = {0};
@@ -322,36 +327,22 @@ void usb_xbox_task(void *arg)
             if (res == 1 || res == -1) {
                 have_report[i] = false;
                 last_sent[i] = xTaskGetTickCount();
-                busy_since[i] = 0;
-                if (res == 1) {
-                    s_last_xfer_done_us = esp_timer_get_time();
-                    if (s_detected_asleep) {
-                        s_detected_asleep = false;
-                        dongle_state_set_usb_suspended(false);
-                        web_server_notify_usb_suspend(false);
-                    }
-                }
-            } else if (res == 0) {
-                TickType_t now = xTaskGetTickCount();
-                if (busy_since[i] == 0) busy_since[i] = now;
-                if (now - busy_since[i] > pdMS_TO_TICKS(1200)) {
-                    ESP_LOGW(TAG, "usb %u IN endpoint stuck busy; forcing USB soft reconnect", i);
-                    busy_since[i] = now;
-                    set_reenumerate_requested(true);
-                    set_resync_requested(true);
-                }
             }
+            /* res == 0: IN endpoint still waiting for the host. Keep the
+             * pending report queued. A busy endpoint is not a failed
+             * enumeration — Linux xpad does not submit an IN URB until
+             * something opens the pad. */
         }
 
-        // Transfer-based sleep detection: if no Xbox transfer completed for
-        // 3 seconds, the host is likely asleep (TinyUSB suspend callbacks are
-        // unreliable on ESP32-S3 — many PCs don't signal USB suspend properly).
-        if (!s_detected_asleep && tud_ready() &&
-            esp_timer_get_time() - s_last_xfer_done_us > 3000000) {
-            s_detected_asleep = true;
-            ESP_LOGI(TAG, "USB host asleep (no xfer ack for 3 s)");
-            dongle_state_set_usb_suspended(true);
-            web_server_notify_usb_suspend(true);
+        /* Host idle is "configured, not suspended, no completed IN transfer".
+         * It must not set usb_suspended: that flag stops the AP and drives
+         * the sleep LED / remote-wake path. */
+        bool idle = tud_mounted() && tud_ready() && !tud_suspended() &&
+                    xbox_us_since_in_complete() > USB_HOST_IDLE_US;
+        if (idle != s_host_idle) {
+            s_host_idle = idle;
+            dongle_state_set_usb_host_idle(idle);
+            ESP_LOGI(TAG, "USB host %s", idle ? "idle (no IN completion for 3 s)" : "polling");
         }
 
         // Keepalive: replay the latest desired report every 1000 ms to keep
@@ -363,10 +354,7 @@ void usb_xbox_task(void *arg)
             if (!have_report[i] && (now - last_sent[i]) > pdMS_TO_TICKS(1000) &&
                 tud_ready() && !tud_suspended() && last_report_valid[i]) {
                 int res = xbox_send_report(i, last_report[i], DONGLE_XBOX_REPORT_SIZE);
-                if (res == 1) {
-                    last_sent[i] = now;
-                    s_last_xfer_done_us = esp_timer_get_time();
-                }
+                if (res == 1) last_sent[i] = now;
             }
         }
     }
@@ -376,8 +364,8 @@ void usb_xbox_init(void)
 {
     s_flag_lock = xSemaphoreCreateMutex();
     configASSERT(s_flag_lock != NULL);
-    s_last_xfer_done_us = esp_timer_get_time();
-    s_detected_asleep = false;
+    s_host_idle = false;
+    s_last_in_log_us = esp_timer_get_time();
 
     tinyusb_config_t cfg = {
         .port = TINYUSB_PORT_FULL_SPEED_0,
@@ -395,7 +383,7 @@ void usb_xbox_init(void)
         .event_arg = NULL,
     };
     ESP_ERROR_CHECK(tinyusb_driver_install(&cfg));
-    xTaskCreate(usb_state_monitor_task, "usb_state", 2048, NULL, 2, NULL);
+    xTaskCreate(usb_state_monitor_task, "usb_state", 3072, NULL, 2, NULL);
     ESP_LOGI(TAG, "Xbox USB initialised controllers=%u utility_hid=%u mouse_hid=%u cfg_len=%u",
              (unsigned)DONGLE_MAX_CONTROLLERS, (unsigned)DONGLE_ENABLE_UTILITY_HID,
              (unsigned)DONGLE_ENABLE_MOUSE_HID, (unsigned)XBOX_CFG_LEN);

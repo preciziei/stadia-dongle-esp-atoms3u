@@ -87,6 +87,10 @@ typedef struct {
     bool usb_configured;
     bool usb_suspended;
     bool usb_remote_wakeup_enabled;
+    /* Host is configured and not suspended, but has not completed an Xbox IN
+     * transfer recently. Independent of usb_suspended: it must not stop the
+     * AP or arm remote wake. */
+    bool usb_host_idle;
     int64_t last_wake_attempt_us;
     bool last_wake_attempt_allowed;
     char last_error[DONGLE_ERROR_LEN];
@@ -115,6 +119,7 @@ void dongle_state_update_controller_reports(uint8_t slot_index, const uint8_t *r
 void dongle_state_set_usb_configured(bool configured);
 void dongle_state_set_usb_suspended(bool suspended);
 void dongle_state_set_usb_remote_wakeup_enabled(bool enabled);
+void dongle_state_set_usb_host_idle(bool idle);
 void dongle_state_record_wake_attempt(bool allowed);
 void dongle_state_set_error(const char *error);
 void dongle_state_update_reports(const uint8_t *raw, size_t raw_len,

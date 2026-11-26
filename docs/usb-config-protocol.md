@@ -10,7 +10,7 @@ which designed and first implemented this protocol.
 ## Transport
 
 - USB VID: `0x045E`
-- USB PID: `0x0289`
+- USB PID: `0x028E` (Xbox 360 controller; Linux `xpad` treats `0x0289` as an original Xbox pad)
 - HID Usage Page: `0xFF00` (vendor-defined)
 - HID Usage: `0x01`
 - Feature Report ID: `0x10`

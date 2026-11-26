@@ -11,6 +11,7 @@
 #include "hid_mouse.h"
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "tinyusb.h"
 #include "device/usbd.h"
 #include "device/usbd_pvt.h"
@@ -53,6 +54,13 @@ static xbox_gamepad_instance_t s_gamepads[DONGLE_MAX_CONTROLLERS] = {
 
 static volatile bool s_rhport_ready;
 static uint8_t s_rhport;
+static volatile uint32_t s_last_in_complete_us;
+static volatile uint32_t s_in_complete_count;
+
+static void mark_in_activity(void)
+{
+    s_last_in_complete_us = (uint32_t)esp_timer_get_time();
+}
 
 static xbox_gamepad_instance_t *gamepad_by_interface(uint8_t itf)
 {
@@ -86,6 +94,7 @@ static void xbox_init(void)
 {
     s_rhport_ready = false;
     for (uint8_t i = 0; i < DONGLE_MAX_CONTROLLERS; i++) s_gamepads[i].open = false;
+    mark_in_activity();
 }
 
 static bool xbox_deinit(void)
@@ -159,6 +168,14 @@ static bool xbox_xfer_cb(uint8_t rhport, uint8_t ep_addr,
     if (!gp) return true;
     if (result != XFER_RESULT_SUCCESS) {
         ESP_LOGW(TAG, "usb %u xfer failed ep=0x%02x result=%d", gp->index, ep_addr, result);
+    }
+
+    if (ep_addr == gp->ep_in) {
+        if (result == XFER_RESULT_SUCCESS) {
+            mark_in_activity();
+            s_in_complete_count++;
+        }
+        return true;
     }
 
     if (ep_addr == gp->ep_out) {
@@ -244,6 +261,21 @@ int xbox_send_report(uint8_t gamepad_index, const uint8_t *report, size_t len)
         return ok ? 1 : 0;
     }
     return 0;
+}
+
+void xbox_note_bus_activity(void)
+{
+    mark_in_activity();
+}
+
+uint32_t xbox_us_since_in_complete(void)
+{
+    return (uint32_t)esp_timer_get_time() - s_last_in_complete_us;
+}
+
+uint32_t xbox_in_complete_count(void)
+{
+    return s_in_complete_count;
 }
 
 void xbox_recover_after_resume(void)

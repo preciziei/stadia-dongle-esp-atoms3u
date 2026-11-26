@@ -1,0 +1,11 @@
+# Debug overlay. Production sdkconfig.defaults silences logs. Apply this
+# after it so attach / suspend / resume / IN-completion lines from usb_xbox.c
+# are visible:
+#
+#   idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.debug" fullclean build
+#
+# Delete sdkconfig first if a previous configure cached the silent log level.
+
+# CONFIG_LOG_DEFAULT_LEVEL_NONE is not set
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_DEFAULT_LEVEL=3

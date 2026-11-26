@@ -8,9 +8,10 @@ Idea borrowed from jazz-zzzz/stadia-dongle-esp.
 
 ## Boot & USB
 
-- [ ] Fresh flash via the web installer boots (LED: white pulse, then heartbeat).
-- [ ] Dongle enumerates as **Xbox 360 Controller for Windows** on the AtomS3U USB-A port (TinyUSB).
-- [ ] Onboard RGB LED (GPIO 35) shows expected status colors.
+- [ ] Fresh flash via the web installer boots (LED: white breathe, then blue breathe).
+- [ ] Dongle enumerates as **Xbox 360** `045e:028e` on the AtomS3U USB-A port (TinyUSB).
+- [ ] On Fedora, `dmesg` shows `xpad` bind the device as an Xbox 360 pad and does not repeat USB disconnects. `evtest` / a browser gamepad tester shows input, and the LED stays green (no magenta flicker).
+- [ ] Onboard RGB LED (GPIO 35) shows the README colors: blue scan, cyan pair, green play, magenta only while the host is actually suspended.
 - [ ] Onboard button (GPIO 41) starts the Wi-Fi Web UI; when the host is suspended it also requests remote wake.
 - [ ] IR pin (GPIO 12) stays inactive (no IR activity).
 - [ ] `joy.cpl` (or a gamepad tester) shows the pad with no phantom input at rest.
@@ -59,6 +60,9 @@ Idea borrowed from jazz-zzzz/stadia-dongle-esp.
 
 ## Power
 
-- [ ] Host sleep: dongle LED goes dim purple; Assistant/Capture/A wakes the PC
+- [ ] Host sleep: dongle LED breathes magenta; Assistant/Capture/A wakes the PC
       (BIOS/OS USB wake enabled); Stadia button does **not** wake it.
-- [ ] After host resume, controllers work without re-pairing.
+- [ ] With a controller connected and no program reading the pad, the LED stays
+      green and ticks cyan. It does not turn magenta unless the host suspends USB.
+- [ ] After host resume, controllers work without re-pairing and without a USB
+      re-enumeration storm (`dmesg` stays quiet).

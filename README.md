@@ -48,8 +48,16 @@ On Windows, double-click `build_firmware.cmd` for the same build. From a
 terminal, pass `--no-pause` to suppress the final prompt.
 
 `sdkconfig.defaults` pre-configures NimBLE central, TinyUSB, 240 MHz CPU,
-AtomS3U pins, and production logging. The default partition table fits **8 MB**
-flash with dual OTA slots (~3.875 MB each).
+AtomS3U pins, and production logging (silent). The default partition table fits
+**8 MB** flash with dual OTA slots (~3.875 MB each).
+
+To log USB attach, suspend, resume, and Xbox IN completions, build with the
+debug overlay (delete `sdkconfig` first if a previous configure cached the
+silent log level):
+
+```sh
+idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.debug" fullclean build
+```
 
 ### Flash
 
@@ -112,7 +120,9 @@ Host the `docs/` folder and open `docs/index.html` in Chrome/Edge.
 ### Gamepad Mode
 
 The controller appears as an **Xbox 360 Controller for Windows** (VID 0x045E,
-PID 0x0289). Button mapping:
+PID 0x028E). Linux `xpad` maps `0x0289` to the original Xbox report layout, so
+this firmware uses the 360 id. Re-plug after flashing so the host drops the
+old identity. Button mapping:
 
 | Stadia          | Xbox 360  |
 |-----------------|-----------|
@@ -215,21 +225,40 @@ wake signal via `tud_remote_wakeup()`. The **Stadia/Guide** button intentionally
 does not wake the PC, so it can be held to turn off the controller. Requires
 BIOS/OS USB wake support. Not always working.
 
+### Linux autosuspend
+
+Fedora can runtime-suspend the dongle when nothing has the gamepad open. The
+LED then breathes magenta, and input stays quiet until a program opens the pad
+or the onboard button requests remote wake. That is host policy. To keep the
+dongle awake, add `/etc/udev/rules.d/99-stadia-dongle.rules`:
+
+```
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="028e", TEST=="power/control", ATTR{power/control}="on"
+```
+
+Reload udev and re-plug. A magenta LED means the host really suspended the
+bus. A green LED with a short cyan tick means the host is awake but has not
+read an Xbox report for 3 seconds (nothing has the pad open yet).
+
 ## LED Reference
 
-Status LED is the onboard WS2812 on **GPIO 35** (AtomS3U).
+Status LED is the onboard WS2812 on **GPIO 35** (AtomS3U). Colors are saturated
+and crossfade over about 300 ms. Patterns use full channel levels so blue,
+cyan, green, and magenta stay distinct on this LED.
 
 | Pattern                        | Meaning |
 |--------------------------------|---------|
-| White pulse                    | Booting |
-| Dim blue heartbeat             | Scanning, no controller connected |
-| Blue-yellow alternating        | Scanning + Wi-Fi AP on |
-| Green heartbeat                | 1 controller in gamepad mode |
-| Faster green heartbeat         | 2 controllers in gamepad mode |
-| Orange heartbeat               | At least 1 controller in mouse mode |
-| Dim purple heartbeat           | PC sleeping (USB suspended) |
-| Red pulsing                    | Error |
-| Purple/yellow alternating      | OTA firmware update |
+| White breathe                  | Booting |
+| Blue breathe                   | Scanning, no controller connected |
+| Blue fading into cyan          | Scanning + Wi-Fi AP on |
+| Fast cyan pulse                | Pairing or connecting |
+| Green breathe                  | 1 controller in gamepad mode |
+| Green with two bright beats    | 2 controllers in gamepad mode |
+| Green with a cyan tick         | Controller connected, host not reading the pad |
+| Amber breathe                  | At least 1 controller in mouse mode |
+| Magenta breathe                | PC sleeping (USB suspended) |
+| Red pulse                      | Error |
+| Magenta fading into amber      | OTA firmware update |
 | Brief white flash              | Remote wake sent |
 
 ## Board button / IR

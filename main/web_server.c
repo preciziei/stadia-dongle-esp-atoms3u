@@ -175,14 +175,14 @@ static esp_err_t status_handler(httpd_req_t *req)
     } else {
         battery_json = "null";
     }
-    char json[1300];
+    char json[1500];
     snprintf(json, sizeof(json),
              "{\"firmware_version\":\"%s\",\"build_date\":\"%s\",\"uptime_ms\":%lld,"
              "\"state\":\"%s\",\"webui_active\":%s,\"webui_auto_off_seconds\":%d,"
              "\"webui_clients\":%d,\"ble_connected\":%s,\"connected_count\":%d,\"controller_slots\":%u,"
              "\"pairing_mode\":%s,\"controller_name\":\"%s\","
              "\"controller_address\":\"%s\",\"battery_percent\":%s,\"usb_configured\":%s,"
-             "\"usb_suspended\":%s,\"usb_remote_wakeup_enabled\":%s,"
+             "\"usb_suspended\":%s,\"usb_remote_wakeup_enabled\":%s,\"usb_host_idle\":%s,"
              "\"last_wake_attempt_us\":%lld,\"last_wake_attempt_allowed\":%s,\"last_error\":\"%s\"}",
              st.firmware_version, st.build_date, esp_timer_get_time() / 1000,
              dongle_state_name(st.state), st.webui_active ? "true" : "false", auto_off,
@@ -191,6 +191,7 @@ static esp_err_t status_handler(httpd_req_t *req)
              st.controller_name, st.controller_address, battery_json,
              st.usb_configured ? "true" : "false", st.usb_suspended ? "true" : "false",
              st.usb_remote_wakeup_enabled ? "true" : "false",
+             st.usb_host_idle ? "true" : "false",
              st.last_wake_attempt_us, st.last_wake_attempt_allowed ? "true" : "false",
              st.last_error);
     return send_text(req, json, "application/json");

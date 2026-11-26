@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -34,7 +35,8 @@
 #endif
 
 #define RMT_LED_RESOLUTION_HZ 10000000
-#define LED_TASK_PERIOD_MS 50
+#define LED_TASK_PERIOD_MS 40
+#define LED_FADE_MS 320
 #define WAKE_FLASH_US 250000
 
 static const char *TAG = "LED";
@@ -92,85 +94,155 @@ static size_t led_encoder_cb(const void *data, size_t data_size,
     return 1;
 }
 
-static uint8_t scale_component(uint8_t v)
-{
-    return (uint8_t)(((uint16_t)v * CONFIG_DONGLE_LED_BRIGHTNESS) / 255);
-}
+typedef enum {
+    LED_PAT_BOOT = 0,
+    LED_PAT_SCAN,
+    LED_PAT_SCAN_AP,
+    LED_PAT_PAIR,
+    LED_PAT_ONE,
+    LED_PAT_TWO,
+    LED_PAT_MOUSE,
+    LED_PAT_SUSPEND,
+    LED_PAT_HOST_IDLE,
+    LED_PAT_OTA,
+    LED_PAT_ERROR,
+} led_pattern_t;
 
 static rgb_t rgb(uint8_t r, uint8_t g, uint8_t b)
 {
-    return (rgb_t) {
-        .r = scale_component(r),
-        .g = scale_component(g),
-        .b = scale_component(b),
-    };
+    return (rgb_t) { .r = r, .g = g, .b = b };
 }
 
-static uint8_t triangle_u8(uint32_t elapsed_ms, uint32_t period_ms, uint8_t min_v, uint8_t max_v)
+/* Lift shadow detail, then apply the brightness cap. A zero channel stays
+ * zero so hues stay pure (blue is not a dim white). Non-zero channels get a
+ * floor so mixed colors survive on this LED. */
+static uint8_t encode_channel(uint8_t perceptual)
 {
-    if (period_ms == 0) return max_v;
-    uint32_t phase = elapsed_ms % period_ms;
-    uint32_t half = period_ms / 2;
-    uint32_t span = max_v - min_v;
-    if (phase < half) {
-        return min_v + (uint8_t)((span * phase) / half);
-    }
-    return max_v - (uint8_t)((span * (phase - half)) / half);
+    if (perceptual == 0) return 0;
+
+    float lifted = powf((float)perceptual / 255.0f, 0.60f);
+    int drive = (int)(lifted * (float)CONFIG_DONGLE_LED_BRIGHTNESS + 0.5f);
+    int floor = CONFIG_DONGLE_LED_BRIGHTNESS / 6;
+    if (floor < 12) floor = 12;
+    if (floor > CONFIG_DONGLE_LED_BRIGHTNESS) floor = CONFIG_DONGLE_LED_BRIGHTNESS;
+    if (drive < floor) drive = floor;
+    if (drive > 255) drive = 255;
+    return (uint8_t)drive;
 }
 
-static bool blink_on(uint32_t elapsed_ms, uint32_t period_ms, uint32_t on_ms)
+static rgb_t encode_rgb(rgb_t c)
 {
-    return (elapsed_ms % period_ms) < on_ms;
+    return rgb(encode_channel(c.r), encode_channel(c.g), encode_channel(c.b));
 }
 
-static rgb_t color_for_state(const dongle_status_t *st, uint32_t elapsed_ms)
+static uint8_t breathe(uint32_t elapsed_ms, uint32_t period_ms, uint8_t lo, uint8_t hi)
 {
-    // PC sleeping: dim purple heartbeat
-    if (st->usb_suspended && st->state != DONGLE_STATE_OTA_UPDATE &&
-        st->state != DONGLE_STATE_ERROR) {
-        uint8_t pulse = triangle_u8(elapsed_ms, 2400, 8, 45);
-        return rgb(pulse * 2 / 3, 0, pulse);
-    }
+    if (period_ms == 0 || hi <= lo) return hi;
+    float phase = (float)(elapsed_ms % period_ms) / (float)period_ms;
+    float w = 0.5f - 0.5f * cosf(phase * 6.2831853f);
+    return (uint8_t)(lo + (uint8_t)((float)(hi - lo) * w));
+}
 
-    // Mouse mode active on any controller: orange heartbeat
+static uint8_t lerp_u8(uint8_t a, uint8_t b, uint8_t t)
+{
+    return (uint8_t)(a + ((int)b - (int)a) * (int)t / 255);
+}
+
+static uint8_t smoothstep_u8(uint8_t t)
+{
+    uint32_t tt = (uint32_t)t * t;
+    uint32_t three = 765u - 2u * t;
+    return (uint8_t)((tt * three) / (255u * 255u));
+}
+
+static rgb_t lerp_rgb(rgb_t a, rgb_t b, uint8_t t)
+{
+    return rgb(lerp_u8(a.r, b.r, t), lerp_u8(a.g, b.g, t), lerp_u8(a.b, b.b, t));
+}
+
+static bool any_mouse_mode(const dongle_status_t *st)
+{
     for (uint8_t i = 0; i < DONGLE_MAX_CONTROLLERS; i++) {
-        if (st->controllers[i].mouse_mode) {
-            uint8_t pulse = triangle_u8(elapsed_ms, 2000, 30, 180);
-            return rgb(pulse, pulse / 3, 0);
-        }
+        if (st->controllers[i].mouse_mode) return true;
     }
+    return false;
+}
 
-    if (st->state == DONGLE_STATE_BOOTING) {
-        uint8_t pulse = triangle_u8(elapsed_ms, 1800, 12, 120);
-        return rgb(pulse, pulse, pulse);
-    }
-
+static rgb_t color_for_state(const dongle_status_t *st, uint32_t elapsed_ms, led_pattern_t *pattern)
+{
     if (st->state == DONGLE_STATE_OTA_UPDATE) {
-        return blink_on(elapsed_ms, 300, 150) ? rgb(160, 0, 220) : rgb(255, 180, 0);
+        *pattern = LED_PAT_OTA;
+        uint8_t w = breathe(elapsed_ms, 900, 0, 255);
+        return rgb(255, (uint8_t)((170u * (255u - w)) / 255u), w);
     }
 
     if (st->state == DONGLE_STATE_ERROR) {
-        uint8_t pulse = triangle_u8(elapsed_ms, 800, 10, 255);
-        return rgb(pulse, 0, 0);
+        *pattern = LED_PAT_ERROR;
+        return rgb(breathe(elapsed_ms, 480, 40, 255), 0, 0);
     }
 
-    // Scanning / connected based on controller count.
-    if (st->connected_count >= 2) {
-        // Two controllers: faster green heartbeat
-        return rgb(0, triangle_u8(elapsed_ms, 2000, 80, 200), 0);
-    } else if (st->connected_count >= 1) {
-        // One controller: green heartbeat
-        return rgb(0, triangle_u8(elapsed_ms, 4000, 80, 160), 0);
-    } else if (st->webui_active) {
-        // Scanning + Wi-Fi AP on: blue-yellow alternating heartbeat
-        bool blue = (elapsed_ms % 2400) < 1200;
-        uint8_t pulse = triangle_u8(elapsed_ms, 2400, 20, 100);
-        return blue ? rgb(0, 0, pulse) : rgb(pulse, pulse, 0);
-    } else {
-        // Scanning / no controller: dim blue heartbeat
-        uint8_t pulse = triangle_u8(elapsed_ms, 2400, 20, 100);
-        return rgb(0, 0, pulse);
+    if (st->usb_suspended) {
+        *pattern = LED_PAT_SUSPEND;
+        uint8_t p = breathe(elapsed_ms, 2600, 90, 255);
+        return rgb(p, 0, p);
     }
+
+    if (any_mouse_mode(st)) {
+        *pattern = LED_PAT_MOUSE;
+        uint8_t p = breathe(elapsed_ms, 2000, 120, 255);
+        return rgb(p, (uint8_t)(p * 2 / 3), 0);
+    }
+
+    if (st->state == DONGLE_STATE_BOOTING) {
+        *pattern = LED_PAT_BOOT;
+        uint8_t p = breathe(elapsed_ms, 2200, 70, 255);
+        return rgb(p, p, p);
+    }
+
+    if (st->state == DONGLE_STATE_PAIRING || st->state == DONGLE_STATE_CONNECTING) {
+        *pattern = LED_PAT_PAIR;
+        uint8_t p = breathe(elapsed_ms, 420, 40, 255);
+        return rgb(0, p, p);
+    }
+
+    if (st->connected_count >= 1 && st->usb_host_idle) {
+        *pattern = LED_PAT_HOST_IDLE;
+        uint32_t phase = elapsed_ms % 2800;
+        if (phase < 100) return rgb(0, 255, 255);
+        if (phase < 200) return rgb(0, 255, 0);
+        return rgb(0, 120, 0);
+    }
+
+    if (st->connected_count >= 2) {
+        *pattern = LED_PAT_TWO;
+        uint32_t phase = elapsed_ms % 2000;
+        uint32_t d0 = phase > 160 ? phase - 160 : 160 - phase;
+        uint32_t d1 = phase > 520 ? phase - 520 : 520 - phase;
+        uint32_t dist = d0 < d1 ? d0 : d1;
+        uint8_t blip = 0;
+        if (dist < 150) {
+            float x = 1.0f - (float)dist / 150.0f;
+            blip = (uint8_t)(sinf(x * 1.5707963f) * 255.0f);
+        }
+        uint8_t level = (uint8_t)(100 + ((255 - 100) * blip) / 255);
+        return rgb(0, level, 0);
+    }
+
+    if (st->connected_count >= 1) {
+        *pattern = LED_PAT_ONE;
+        return rgb(0, breathe(elapsed_ms, 3200, 150, 255), 0);
+    }
+
+    if (st->webui_active) {
+        *pattern = LED_PAT_SCAN_AP;
+        float phase = (float)(elapsed_ms % 2400) / 2400.0f;
+        float w = 0.5f - 0.5f * cosf(phase * 6.2831853f);
+        uint8_t p = breathe(elapsed_ms, 2400, 130, 255);
+        return rgb(0, (uint8_t)((float)p * w), p);
+    }
+
+    *pattern = LED_PAT_SCAN;
+    return rgb(0, 0, breathe(elapsed_ms, 2400, 110, 255));
 }
 
 static void led_set(rgb_t c)
@@ -236,6 +308,12 @@ static void status_led_task(void *arg)
     (void)arg;
     const bool hw_ok = led_hw_init();
     const int64_t start_us = esp_timer_get_time();
+    led_pattern_t pattern = LED_PAT_BOOT;
+    rgb_t shown = rgb(0, 0, 0);
+    rgb_t fade_from = shown;
+    uint16_t fade_ms = LED_FADE_MS;
+    bool flash_was = false;
+    bool started = false;
 
     while (1) {
         dongle_status_t st;
@@ -243,9 +321,33 @@ static void status_led_task(void *arg)
 
         int64_t now_us = esp_timer_get_time();
         uint32_t elapsed_ms = (uint32_t)((now_us - start_us) / 1000);
-        rgb_t c = now_us < s_wake_flash_until_us ? rgb(255, 255, 255)
-                                                  : color_for_state(&st, elapsed_ms);
-        if (hw_ok) led_set(c);
+        bool flash = now_us < s_wake_flash_until_us;
+        led_pattern_t next = LED_PAT_BOOT;
+        rgb_t target = color_for_state(&st, elapsed_ms, &next);
+
+        if (flash) {
+            shown = rgb(255, 255, 255);
+            fade_ms = LED_FADE_MS;
+            flash_was = true;
+        } else {
+            if (!started || flash_was || next != pattern) {
+                fade_from = shown;
+                fade_ms = 0;
+                pattern = next;
+                flash_was = false;
+                started = true;
+            }
+            if (fade_ms < LED_FADE_MS) {
+                fade_ms += LED_TASK_PERIOD_MS;
+                if (fade_ms > LED_FADE_MS) fade_ms = LED_FADE_MS;
+                uint8_t t = smoothstep_u8((uint8_t)((fade_ms * 255u) / LED_FADE_MS));
+                shown = lerp_rgb(fade_from, target, t);
+            } else {
+                shown = target;
+            }
+        }
+
+        if (hw_ok) led_set(encode_rgb(shown));
         vTaskDelay(pdMS_TO_TICKS(LED_TASK_PERIOD_MS));
     }
 }
@@ -253,7 +355,7 @@ static void status_led_task(void *arg)
 void status_led_init(void)
 {
 #if CONFIG_DONGLE_LED_ENABLED
-    xTaskCreate(status_led_task, "status_led", 3072, NULL, 1, NULL);
+    xTaskCreate(status_led_task, "status_led", 4096, NULL, 1, NULL);
 #endif
 }
 

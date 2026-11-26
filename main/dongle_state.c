@@ -259,6 +259,13 @@ void dongle_state_set_usb_remote_wakeup_enabled(bool enabled)
     unlock_state();
 }
 
+void dongle_state_set_usb_host_idle(bool idle)
+{
+    lock_state();
+    s_status.usb_host_idle = idle;
+    unlock_state();
+}
+
 void dongle_state_record_wake_attempt(bool allowed)
 {
     lock_state();

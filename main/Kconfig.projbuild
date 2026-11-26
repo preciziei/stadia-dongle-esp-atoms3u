@@ -33,11 +33,12 @@ menu "Stadia dongle"
         config DONGLE_LED_BRIGHTNESS
             int "Status LED brightness"
             depends on DONGLE_LED_ENABLED
-            default 32
+            default 96
             range 1 255
             help
-                Global RGB brightness scalar. 32 is intentionally conservative
-                for small onboard LEDs.
+                Peak drive after the perceptual curve. 96 keeps the AtomS3U
+                RGB channels saturated enough that blue, cyan, green and
+                magenta stay distinct. Lower it if the LED is too bright.
 
     endmenu
 

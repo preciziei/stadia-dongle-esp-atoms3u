@@ -10,7 +10,7 @@
  */
 
 export const USB_VENDOR_ID = 0x045e;
-export const USB_PRODUCT_ID = 0x0289;
+export const USB_PRODUCT_ID = 0x028e;
 export const USAGE_PAGE = 0xff00;
 export const USAGE = 0x01;
 export const REPORT_ID = 0x10;

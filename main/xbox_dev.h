@@ -8,3 +8,8 @@
 void xbox_dev_init(void);
 int xbox_send_report(uint8_t gamepad_index, const uint8_t *report, size_t len);
 void xbox_recover_after_resume(void);
+/* Restart the "host is polling" timer. Call on attach/resume, before any IN
+ * completion, so a quiet bus is not immediately treated as host-idle. */
+void xbox_note_bus_activity(void);
+uint32_t xbox_us_since_in_complete(void);
+uint32_t xbox_in_complete_count(void);
