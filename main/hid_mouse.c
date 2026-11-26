@@ -231,9 +231,16 @@ static bool hid_mouse_driver_control(uint8_t rhport, uint8_t stage,
             }
 
             if (request->bmRequestType_bit.direction == TUSB_DIR_IN) {
-                static uint8_t zero[8] = {0};
+                static uint8_t zero[8] TU_ATTR_ALIGNED(4);
                 uint16_t len = request->wLength < sizeof(zero) ? request->wLength : sizeof(zero);
                 return tud_control_xfer(rhport, request, zero, len);
+            }
+            /* Same as the utility keyboard: accept an OUT data stage instead
+             * of completing status early and stalling EP0. */
+            if (request->wLength > 0) {
+                static uint8_t sink[8] TU_ATTR_ALIGNED(4);
+                if (request->wLength > sizeof(sink)) return false;
+                return tud_control_xfer(rhport, request, sink, request->wLength);
             }
             return tud_control_status(rhport, request);
         }

@@ -289,9 +289,18 @@ static bool hid_extra_driver_control(uint8_t rhport, uint8_t stage,
         return true;
     }
 
+    /* SET_IDLE / GET_PROTOCOL and the keyboard LED SET_REPORT land here.
+     * An OUT request with a payload (Linux writes the LED report, 2 bytes,
+     * during hid-generic probe) must be received. tud_control_status() skips
+     * that data stage, EP0 stalls, and the host then fails the next interface. */
     if (stage != CONTROL_STAGE_SETUP) return true;
+    if (request->bmRequestType_bit.direction == TUSB_DIR_OUT && request->wLength > 0) {
+        static uint8_t sink[8] TU_ATTR_ALIGNED(4);
+        if (request->wLength > sizeof(sink)) return false;
+        return tud_control_xfer(rhport, request, sink, request->wLength);
+    }
     if (request->bmRequestType_bit.direction == TUSB_DIR_IN) {
-        static uint8_t zero[8] = {0};
+        static uint8_t zero[8] TU_ATTR_ALIGNED(4);
         uint16_t len = request->wLength < sizeof(zero) ? request->wLength : sizeof(zero);
         return tud_control_xfer(rhport, request, zero, len);
     }
