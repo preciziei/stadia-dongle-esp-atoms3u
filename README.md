@@ -10,7 +10,12 @@ ESP32-S3 firmware for the **M5Stack AtomS3U** that turns up to three Google Stad
 
 Both pages run in desktop Chrome or Edge and talk to the board directly. Nothing is installed on the PC.
 
-Every push to `main` builds the firmware, publishes a GitHub release named with the UTC build time, and updates the web installer to that same build. The version shown in the Web UI is that timestamp (`YYYYMMDD-HHMM`).
+## Wi-Fi vs. Bluetooth: Which Dongle Should You Use?
+
+This firmware is designed for Stadia Controllers running **Google's official Bluetooth firmware**, giving you plug-and-play wireless XInput with full rumble and zero controller re-flashing required.
+
+If your Stadia Controller is still on its **original Wi-Fi firmware** (or you want 3.5 mm headset audio and 1000 Hz polling over Wi-Fi), check out **[erikb-lab/stadiacast-esp32](https://github.com/erikb-lab/stadiacast-esp32)**, which covers the Wi-Fi side of the ESP32-S3 dongle ecosystem.
+
 
 ## Quick start
 
