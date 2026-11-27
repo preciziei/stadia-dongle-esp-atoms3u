@@ -4,7 +4,7 @@ import { test } from "node:test";
 import {
   ACTIONS, CMD, DongleTransport, HEADER_SIZE, MAGIC, MAX_PAYLOAD,
   PROTOCOL_VERSION, REPORT_DATA_SIZE, REPORT_ID, STATUS,
-  buildRequest, decodeConfig, decodeStatus, encodeConfig, parseResponse,
+  buildRequest, decodeConfig, decodeController, decodeStatus, encodeConfig, parseResponse,
 } from "../docs/webhid-transport.js";
 
 test("request frame layout matches the protocol document", () => {
@@ -59,6 +59,16 @@ test("status decoding reads flags, battery sentinel and strings", () => {
   assert.equal(status.webui_active, false);
   assert.equal(status.battery_percent, null);
   assert.equal(status.controller_address, "AA:BB:CC:DD:EE:FF");
+});
+
+test("controller flags decode the Windows player index and ignore the old mouse bit", () => {
+  const payload = new Uint8Array(55);
+  payload[4] = (1 << 1) | (1 << 2) | (3 << 4) | (1 << 3);
+  const controller = decodeController(payload);
+  assert.equal(controller.connected, true);
+  assert.equal(controller.ready, true);
+  assert.equal(controller.host_player, 3);
+  assert.equal(controller.mouse_mode, undefined);
 });
 
 test("action table is dense and matches dongle_action_t ordering", () => {

@@ -27,8 +27,6 @@
 #include "controller_manager.h"
 #include "dongle_state.h"
 #include "hid_extra.h"
-#include "hid_mouse.h"
-#include "mouse_mode.h"
 #include "status_led.h"
 #include "web_server.h"
 
@@ -106,8 +104,6 @@ void app_main(void)
 
     // USB: install TinyUSB driver (also starts the USB device task on Core 1)
     hid_extra_init();
-    hid_mouse_init();
-    mouse_mode_init();
     usb_xbox_init();
     web_server_init();
 

@@ -33,10 +33,15 @@ void dongle_state_init(void)
         s_status.controllers[i].usb_gamepad_index = i;
         s_status.controllers[i].battery_percent = -1;
     }
+#ifdef STADIA_BUILD_STAMP
+    snprintf(s_status.firmware_version, sizeof(s_status.firmware_version), "%s", STADIA_BUILD_STAMP);
+    snprintf(s_status.build_date, sizeof(s_status.build_date), "%s UTC", STADIA_BUILD_STAMP);
+#else
     const esp_app_desc_t *desc = esp_app_get_description();
     snprintf(s_status.firmware_version, sizeof(s_status.firmware_version), "%.*s",
              (int)sizeof(s_status.firmware_version) - 1, desc->version);
     snprintf(s_status.build_date, sizeof(s_status.build_date), "%s %s", desc->date, desc->time);
+#endif
 }
 
 const char *dongle_state_name(dongle_state_t state)
@@ -167,11 +172,16 @@ void dongle_state_controller_clear(uint8_t slot_index)
     if (slot_index >= DONGLE_MAX_CONTROLLERS) return;
     lock_state();
     uint8_t usb_index = s_status.controllers[slot_index].usb_gamepad_index;
+    bool host_led_valid = s_status.controllers[slot_index].host_led_valid;
+    uint8_t host_led = s_status.controllers[slot_index].host_led;
+    uint8_t host_player = s_status.controllers[slot_index].host_player;
     memset(&s_status.controllers[slot_index], 0, sizeof(s_status.controllers[slot_index]));
     s_status.controllers[slot_index].slot_index = slot_index;
     s_status.controllers[slot_index].usb_gamepad_index = usb_index;
     s_status.controllers[slot_index].battery_percent = -1;
-    s_status.controllers[slot_index].mouse_mode = false;
+    s_status.controllers[slot_index].host_led_valid = host_led_valid;
+    s_status.controllers[slot_index].host_led = host_led;
+    s_status.controllers[slot_index].host_player = host_player;
     update_compat_locked();
     unlock_state();
 }
@@ -302,10 +312,23 @@ void dongle_state_update_reports(const uint8_t *raw, size_t raw_len,
     unlock_state();
 }
 
-void dongle_state_controller_set_mouse_mode(uint8_t slot_index, bool active)
+void dongle_state_set_host_led(uint8_t usb_index, uint8_t led, uint8_t player)
 {
-    if (slot_index >= DONGLE_MAX_CONTROLLERS) return;
+    if (usb_index >= DONGLE_MAX_CONTROLLERS) return;
     lock_state();
-    s_status.controllers[slot_index].mouse_mode = active;
+    s_status.controllers[usb_index].host_led_valid = true;
+    s_status.controllers[usb_index].host_led = led;
+    s_status.controllers[usb_index].host_player = player;
+    unlock_state();
+}
+
+void dongle_state_clear_host_leds(void)
+{
+    lock_state();
+    for (uint8_t i = 0; i < DONGLE_MAX_CONTROLLERS; i++) {
+        s_status.controllers[i].host_led_valid = false;
+        s_status.controllers[i].host_led = 0;
+        s_status.controllers[i].host_player = 0;
+    }
     unlock_state();
 }

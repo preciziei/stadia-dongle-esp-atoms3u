@@ -1,68 +1,68 @@
 # Hardware Test Checklist
 
-Manual pre-release checks. Most changes in this firmware can only be verified
-with a real controller and host, so run the sections your change touches — and
-Boot + Gamepad always — before tagging a release.
+Manual checks. The firmware cannot be proven from CI alone. Run Boot, Pairing,
+and Gamepad before trusting a build, and the sections your change touches.
 
-Idea borrowed from jazz-zzzz/stadia-dongle-esp.
+## Boot and USB
 
-## Boot & USB
-
-- [ ] Fresh flash via the web installer boots (LED: white breathe, then blue breathe).
-- [ ] Dongle enumerates as **Xbox 360** `045e:028e` on the AtomS3U USB-A port (TinyUSB).
-- [ ] On Fedora, `dmesg` shows `xpad` bind the device as an Xbox 360 pad and does not repeat USB disconnects. `evtest` / a browser gamepad tester shows input, and the LED stays green (no magenta flicker).
-- [ ] Onboard RGB LED (GPIO 35) shows the README colors: blue scan, cyan pair, green play, magenta only while the host is actually suspended.
-- [ ] Onboard button (GPIO 41) starts the Wi-Fi Web UI; when the host is suspended it also requests remote wake.
-- [ ] IR pin (GPIO 12) stays inactive (no IR activity).
-- [ ] `joy.cpl` (or a gamepad tester) shows the pad with no phantom input at rest.
-- [ ] After a reboot with bonds stored, the Wi-Fi AP does **not** start.
-- [ ] On a fresh flash (no bonds), the setup AP **does** start.
+- [ ] Web installer flash boots. LED is solid orange, then pulsing orange when nothing is bonded.
+- [ ] Dongle enumerates as Xbox 360 `045e:028e` on the AtomS3U USB-A port.
+- [ ] Windows Device Manager shows three Xbox 360 pads and one HID keyboard. After the first flash of this 3-pad build, remove greyed-out "Xbox 360 Peripherals" entries (View, Show hidden devices) and re-plug once.
+- [ ] On Fedora, `dmesg` shows `xpad` bind three Xbox 360 interfaces and does not repeat USB disconnects.
+- [ ] `joy.cpl` or a gamepad tester shows no phantom input at rest.
+- [ ] Onboard button (GPIO 41) starts the Wi-Fi Web UI. When the host is suspended it also requests remote wake.
+- [ ] IR pin (GPIO 12) stays inactive.
+- [ ] Web UI and USB config page show the firmware version as the UTC build stamp (`YYYYMMDD-HHMM`).
 
 ## Pairing
 
-- [ ] Pairing from the Web UI or USB config page connects a controller in
-      Bluetooth mode (Stadia + Y, orange flash).
-- [ ] Controller auto-reconnects after power-off/on in under ~5 s.
-- [ ] Second controller pairs and appears as a second gamepad.
-- [ ] Forget + re-pair works without a dongle reboot.
+- [ ] A dongle with no bonds pairs a controller that is in Bluetooth mode (Stadia + Y, orange flash) without opening a page. LED pulses orange, then goes solid white.
+- [ ] A bonded controller reconnects after power-off in under about 5 seconds. LED pulses white while it connects, then solid white.
+- [ ] Second and third controllers connect. The first one powered on takes USB pad 0.
+- [ ] Forget and re-pair works without rebooting the dongle.
+- [ ] More than three controllers can stay bonded. Only three are connected at once.
 
 ## Gamepad
 
-- [ ] All buttons, sticks, triggers and D-pad register correctly.
-- [ ] Sticks reach full deflection in all directions; center is neutral.
-- [ ] Rumble works (test in a game or the Xbox 360 controller test dialog).
-- [ ] After a controller disconnects mid-session, it reconnects as the **same**
-      gamepad index, and inputs are neutral while it is away.
+- [ ] Buttons, sticks, triggers, and D-pad register on each connected pad.
+- [ ] Sticks reach full deflection. Center is neutral.
+- [ ] Rumble works on each pad.
+- [ ] After a controller disconnects, its pad goes neutral, and the next controller to power on takes the lowest free pad.
 
-## Mouse mode
+## Windows player order
 
-- [ ] Assistant + Capture (2 s hold) toggles mouse mode; 2 rumble pulses on,
-      3 pulses off.
-- [ ] Cursor speed is the same diagonally as straight (draw slow circles).
-- [ ] Slow stick deflection moves the cursor; releasing stops it dead.
-- [ ] Right-stick scroll ramps smoothly from slow to fast; D-pad up/down
-      scrolls one detent per press.
-- [ ] A / B / X click as left / right / middle.
+Do this in Edge at a gamepad tester, with the staggered-start option still off.
+
+- [ ] Power on controller A, then B, then C. The tester shows them as controller 1, then 2, then 3.
+- [ ] The Web UI and USB config page show "Windows player 1/2/3" matching the tester.
+- [ ] Unplug and re-plug the dongle 20 times without changing which controller is on. Record whether the player numbers stay in power-on order.
+- [ ] If they do not, enable `Dongle USB staggered pad start` in menuconfig, rebuild, and repeat the 20 cycles. Keep the option only if that run is stable. Linux will not send LED commands, so the option delays pads 2 and 3 by up to 400 ms.
 
 ## Extra buttons
 
-- [ ] Assistant and Capture short/long presses emit their configured keys.
-- [ ] Remapping via the Web UI and via the USB config page both persist across
-      a reboot.
+- [ ] Assistant and Capture short and long presses emit their configured keys.
+- [ ] Remapping from the Web UI and from the USB config page both survive a reboot.
+- [ ] Holding Stadia + Options + Menu for 5 seconds starts the Web UI.
 
-## Web UI / USB config
+## Web UI and USB config
 
-- [ ] Captive portal pops automatically after joining the AP.
-- [ ] USB config page (docs/config.html) connects, shows live status, saves
-      config, lists controllers, and live input reflects button presses.
-- [ ] AP auto-off fires after the configured timeout with a controller
-      connected.
+- [ ] The USB config page connects, shows live status, saves config, lists controllers, and live input follows button presses.
+- [ ] The captive portal opens after joining the AP.
+- [ ] The AP turns itself off after the configured timeout while a controller is connected.
+
+## LED
+
+- [ ] Solid orange while the dongle is booting.
+- [ ] Pulsing orange while pairing, and while no controller is bonded.
+- [ ] Pulsing white while connecting to a bonded controller.
+- [ ] Solid white with one controller. Two brief dips with two controllers, three with three.
+- [ ] A cyan tick on the white pattern when a controller is connected and nothing has the pad open.
+- [ ] Cyan breathe when the Wi-Fi page is on and no controller is connected.
+- [ ] Magenta breathe only while the host has suspended USB.
+- [ ] Magenta fading toward blue during an OTA update.
+- [ ] A short white flash when remote wake is sent.
 
 ## Power
 
-- [ ] Host sleep: dongle LED breathes magenta; Assistant/Capture/A wakes the PC
-      (BIOS/OS USB wake enabled); Stadia button does **not** wake it.
-- [ ] With a controller connected and no program reading the pad, the LED stays
-      green and ticks cyan. It does not turn magenta unless the host suspends USB.
-- [ ] After host resume, controllers work without re-pairing and without a USB
-      re-enumeration storm (`dmesg` stays quiet).
+- [ ] Host sleep: LED breathes magenta. Assistant, Capture, or A wakes the PC when USB wake is enabled in the BIOS and OS. The Stadia button does not wake it.
+- [ ] After the host resumes, controllers work without re-pairing and without a stream of USB disconnects in `dmesg`.

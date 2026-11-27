@@ -95,11 +95,11 @@
       <strong>Edge</strong> on desktop.
     </p>
     <p class="hint">
-      The dongle must be plugged in over its <strong>USB-A / TinyUSB</strong> port and
-      running firmware v1.07 or newer
+      The dongle must be plugged in over its <strong>USB-A / TinyUSB</strong> port
       (<a href="index.html">web installer</a>). Everything here talks directly
       to the device; nothing leaves your machine.
     </p>
+    <p class="hint">Page build __BUILD_STAMP__</p>
   </div>
 
   <div id="error"></div>
@@ -261,7 +261,7 @@
               <div style="margin-top:0.4rem">
                 ${c.connected ? '<span class="pill on">connected</span>' : '<span class="pill">stored bond</span>'}
                 ${c.ready ? '<span class="pill on">ready</span>' : ""}
-                ${c.mouse_mode ? '<span class="pill on">mouse mode</span>' : ""}
+                ${c.host_player ? `<span class="pill on">Windows player ${c.host_player}</span>` : ""}
                 ${c.battery_percent !== null ? `<span class="pill">${c.battery_percent}%</span>` : ""}
               </div>
             </div>`).join("")

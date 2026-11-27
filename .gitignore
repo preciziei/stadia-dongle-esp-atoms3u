@@ -16,3 +16,4 @@
 # Local build logs and scratch output
 /log
 *.log
+.stadia-build-ts

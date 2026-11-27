@@ -64,7 +64,11 @@ typedef struct {
     uint8_t xbox[DONGLE_XBOX_REPORT_SIZE];
     bool xbox_valid;
     int battery_percent;
-    bool mouse_mode;
+    /* Host LED-ring command for this USB pad. Windows xusb22 sends 0x02..0x09
+     * to assign player 1..4. host_player is 0 until that command arrives. */
+    bool host_led_valid;
+    uint8_t host_led;
+    uint8_t host_player;
 } dongle_controller_status_t;
 
 typedef struct {
@@ -125,4 +129,5 @@ void dongle_state_set_error(const char *error);
 void dongle_state_update_reports(const uint8_t *raw, size_t raw_len,
                                  const stadia_controller_state_t *stadia,
                                  const uint8_t *xbox);
-void dongle_state_controller_set_mouse_mode(uint8_t slot_index, bool active);
+void dongle_state_set_host_led(uint8_t usb_index, uint8_t led, uint8_t player);
+void dongle_state_clear_host_leds(void);

@@ -95,17 +95,15 @@ static size_t led_encoder_cb(const void *data, size_t data_size,
 }
 
 typedef enum {
-    LED_PAT_BOOT = 0,
-    LED_PAT_SCAN,
-    LED_PAT_SCAN_AP,
-    LED_PAT_PAIR,
-    LED_PAT_ONE,
-    LED_PAT_TWO,
-    LED_PAT_MOUSE,
-    LED_PAT_SUSPEND,
-    LED_PAT_HOST_IDLE,
+    LED_PAT_ERROR = 0,
     LED_PAT_OTA,
-    LED_PAT_ERROR,
+    LED_PAT_SUSPEND,
+    LED_PAT_BOOT,
+    LED_PAT_PAIR,
+    LED_PAT_CONNECT,
+    LED_PAT_CONNECTED,
+    LED_PAT_WEBUI,
+    LED_PAT_IDLE,
 } led_pattern_t;
 
 static rgb_t rgb(uint8_t r, uint8_t g, uint8_t b)
@@ -160,25 +158,58 @@ static rgb_t lerp_rgb(rgb_t a, rgb_t b, uint8_t t)
     return rgb(lerp_u8(a.r, b.r, t), lerp_u8(a.g, b.g, t), lerp_u8(a.b, b.b, t));
 }
 
-static bool any_mouse_mode(const dongle_status_t *st)
+static bool seeking_new_controller(const dongle_status_t *st)
 {
-    for (uint8_t i = 0; i < DONGLE_MAX_CONTROLLERS; i++) {
-        if (st->controllers[i].mouse_mode) return true;
+    return st->pairing_mode ||
+           st->state == DONGLE_STATE_PAIRING ||
+           st->state == DONGLE_STATE_NO_BOND_SETUP ||
+           (st->stored_bonds == 0 && st->state == DONGLE_STATE_SCANNING);
+}
+
+static bool reconnecting(const dongle_status_t *st)
+{
+    return st->state == DONGLE_STATE_CONNECTING ||
+           (st->stored_bonds > 0 && st->connected_count == 0 &&
+            (st->state == DONGLE_STATE_SCANNING || st->state == DONGLE_STATE_DISCONNECTED));
+}
+
+/* Solid white, with one brief dip per connected controller so 2 and 3 pads
+ * are countable, and a cyan tick when the host is not reading the pad. */
+static rgb_t connected_color(const dongle_status_t *st, uint32_t elapsed_ms)
+{
+    int count = st->connected_count;
+    if (count < 1) count = 1;
+    if (count > 3) count = 3;
+
+    uint8_t level = 255;
+    if (count >= 2) {
+        uint32_t phase = elapsed_ms % 3000;
+        for (int i = 0; i < count; i++) {
+            uint32_t center = 180u + (uint32_t)i * 260u;
+            uint32_t dist = phase > center ? phase - center : center - phase;
+            if (dist < 80) {
+                level = (uint8_t)((dist * 255u) / 80u);
+                break;
+            }
+        }
     }
-    return false;
+
+    uint32_t tick = elapsed_ms % 2800;
+    if (st->usb_host_idle && tick < 120) return rgb(0, level, level);
+    return rgb(level, level, level);
 }
 
 static rgb_t color_for_state(const dongle_status_t *st, uint32_t elapsed_ms, led_pattern_t *pattern)
 {
-    if (st->state == DONGLE_STATE_OTA_UPDATE) {
-        *pattern = LED_PAT_OTA;
-        uint8_t w = breathe(elapsed_ms, 900, 0, 255);
-        return rgb(255, (uint8_t)((170u * (255u - w)) / 255u), w);
-    }
-
     if (st->state == DONGLE_STATE_ERROR) {
         *pattern = LED_PAT_ERROR;
         return rgb(breathe(elapsed_ms, 480, 40, 255), 0, 0);
+    }
+
+    if (st->state == DONGLE_STATE_OTA_UPDATE) {
+        *pattern = LED_PAT_OTA;
+        uint8_t w = breathe(elapsed_ms, 900, 0, 255);
+        return rgb((uint8_t)(255u - w), 0, 255);
     }
 
     if (st->usb_suspended) {
@@ -187,62 +218,37 @@ static rgb_t color_for_state(const dongle_status_t *st, uint32_t elapsed_ms, led
         return rgb(p, 0, p);
     }
 
-    if (any_mouse_mode(st)) {
-        *pattern = LED_PAT_MOUSE;
-        uint8_t p = breathe(elapsed_ms, 2000, 120, 255);
-        return rgb(p, (uint8_t)(p * 2 / 3), 0);
-    }
-
     if (st->state == DONGLE_STATE_BOOTING) {
         *pattern = LED_PAT_BOOT;
-        uint8_t p = breathe(elapsed_ms, 2200, 70, 255);
+        return rgb(255, 96, 0);
+    }
+
+    if (seeking_new_controller(st)) {
+        *pattern = LED_PAT_PAIR;
+        uint8_t p = breathe(elapsed_ms, 520, 30, 255);
+        return rgb(p, (uint8_t)(p * 2 / 5), 0);
+    }
+
+    if (reconnecting(st)) {
+        *pattern = LED_PAT_CONNECT;
+        uint8_t p = breathe(elapsed_ms, 700, 40, 255);
         return rgb(p, p, p);
     }
 
-    if (st->state == DONGLE_STATE_PAIRING || st->state == DONGLE_STATE_CONNECTING) {
-        *pattern = LED_PAT_PAIR;
-        uint8_t p = breathe(elapsed_ms, 420, 40, 255);
-        return rgb(0, p, p);
-    }
-
-    if (st->connected_count >= 1 && st->usb_host_idle) {
-        *pattern = LED_PAT_HOST_IDLE;
-        uint32_t phase = elapsed_ms % 2800;
-        if (phase < 100) return rgb(0, 255, 255);
-        if (phase < 200) return rgb(0, 255, 0);
-        return rgb(0, 120, 0);
-    }
-
-    if (st->connected_count >= 2) {
-        *pattern = LED_PAT_TWO;
-        uint32_t phase = elapsed_ms % 2000;
-        uint32_t d0 = phase > 160 ? phase - 160 : 160 - phase;
-        uint32_t d1 = phase > 520 ? phase - 520 : 520 - phase;
-        uint32_t dist = d0 < d1 ? d0 : d1;
-        uint8_t blip = 0;
-        if (dist < 150) {
-            float x = 1.0f - (float)dist / 150.0f;
-            blip = (uint8_t)(sinf(x * 1.5707963f) * 255.0f);
-        }
-        uint8_t level = (uint8_t)(100 + ((255 - 100) * blip) / 255);
-        return rgb(0, level, 0);
-    }
-
     if (st->connected_count >= 1) {
-        *pattern = LED_PAT_ONE;
-        return rgb(0, breathe(elapsed_ms, 3200, 150, 255), 0);
+        *pattern = LED_PAT_CONNECTED;
+        return connected_color(st, elapsed_ms);
     }
 
     if (st->webui_active) {
-        *pattern = LED_PAT_SCAN_AP;
-        float phase = (float)(elapsed_ms % 2400) / 2400.0f;
-        float w = 0.5f - 0.5f * cosf(phase * 6.2831853f);
-        uint8_t p = breathe(elapsed_ms, 2400, 130, 255);
-        return rgb(0, (uint8_t)((float)p * w), p);
+        *pattern = LED_PAT_WEBUI;
+        uint8_t p = breathe(elapsed_ms, 2400, 80, 255);
+        return rgb(0, p, p);
     }
 
-    *pattern = LED_PAT_SCAN;
-    return rgb(0, 0, breathe(elapsed_ms, 2400, 110, 255));
+    *pattern = LED_PAT_IDLE;
+    uint8_t p = breathe(elapsed_ms, 2400, 40, 180);
+    return rgb(p, (uint8_t)(p * 2 / 5), 0);
 }
 
 static void led_set(rgb_t c)

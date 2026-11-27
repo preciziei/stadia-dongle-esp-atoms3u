@@ -11,7 +11,6 @@
 #include "controller_manager.h"
 #include "dongle_config.h"
 #include "dongle_state.h"
-#include "mouse_mode.h"
 #include "web_server.h"
 
 #include "esp_log.h"
@@ -375,7 +374,6 @@ static void clear_slot(controller_slot_t *slot)
     slot->conn_handle = BLE_HS_CONN_HANDLE_NONE;
     slot->battery_percent = -1;
     dongle_state_controller_clear(idx);
-    mouse_mode_reset(usb);
     bridge_send_neutral(usb);
     if (s_slot_lock) xSemaphoreGive(s_slot_lock);
     if (occupied_slots() == 0) {
@@ -1171,29 +1169,15 @@ static int gap_event_fn(struct ble_gap_event *event, void *arg)
         dongle_state_update_controller_reports(slot->slot_index, raw, len, &state, xbox);
         button_actions_on_state(slot->usb_gamepad_index, &state);
 
-        if (mouse_mode_is_active(slot->usb_gamepad_index)) {
-            ble_to_usb_msg_t neutral = {
-                .gamepad_index = slot->usb_gamepad_index,
-                .data = {0x00, 0x14},
-                .len = DONGLE_XBOX_REPORT_SIZE,
-            };
-            if (xQueueSendToBack(ble_to_usb_queue, &neutral, 0) != pdTRUE) {
-                ble_to_usb_msg_t dummy;
-                xQueueReceive(ble_to_usb_queue, &dummy, 0);
-                xQueueSendToBack(ble_to_usb_queue, &neutral, 0);
-            }
-            mouse_mode_cache_state(slot->usb_gamepad_index, &state);
-        } else {
-            ble_to_usb_msg_t msg = {
-                .gamepad_index = slot->usb_gamepad_index,
-                .len = DONGLE_XBOX_REPORT_SIZE,
-            };
-            memcpy(msg.data, xbox, sizeof(xbox));
-            if (xQueueSendToBack(ble_to_usb_queue, &msg, 0) != pdTRUE) {
-                ble_to_usb_msg_t dummy;
-                xQueueReceive(ble_to_usb_queue, &dummy, 0);
-                xQueueSendToBack(ble_to_usb_queue, &msg, 0);
-            }
+        ble_to_usb_msg_t msg = {
+            .gamepad_index = slot->usb_gamepad_index,
+            .len = DONGLE_XBOX_REPORT_SIZE,
+        };
+        memcpy(msg.data, xbox, sizeof(xbox));
+        if (xQueueSendToBack(ble_to_usb_queue, &msg, 0) != pdTRUE) {
+            ble_to_usb_msg_t dummy;
+            xQueueReceive(ble_to_usb_queue, &dummy, 0);
+            xQueueSendToBack(ble_to_usb_queue, &msg, 0);
         }
         break;
     }

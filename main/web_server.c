@@ -6,7 +6,6 @@
 #include "config_store.h"
 #include "controller_manager.h"
 #include "dongle_state.h"
-#include "mouse_mode.h"
 
 #include "esp_app_desc.h"
 #include "esp_check.h"
@@ -246,11 +245,15 @@ static size_t append_live_controller_json(char *json, size_t json_len, size_t of
     off += snprintf(json + off, json_len - off,
                     ",\"pressed\":\"%s\",\"raw\":\"%s\",\"raw_len\":%u,"
                     "\"lt\":%u,\"rt\":%u,\"lx\":%d,\"ly\":%d,\"rx\":%d,\"ry\":%d,"
-                    "\"mouse_mode\":%s}",
+                    "\"host_player\":",
                     names, raw, (unsigned)c->stadia.raw_len,
                     c->stadia.lt, c->stadia.rt, c->stadia.lx, c->stadia.ly,
-                    c->stadia.rx, c->stadia.ry,
-                    c->mouse_mode ? "true" : "false");
+                    c->stadia.rx, c->stadia.ry);
+    if (c->host_player) {
+        off += snprintf(json + off, json_len - off, "%u}", (unsigned)c->host_player);
+    } else {
+        off += snprintf(json + off, json_len - off, "null}");
+    }
     return off;
 }
 
@@ -260,11 +263,8 @@ static esp_err_t controllers_handler(httpd_req_t *req)
     int count = controller_manager_list(list, CONTROLLER_MANAGER_MAX_CONTROLLERS);
     dongle_status_t st;
     dongle_state_get_status(&st);
-    static char json[4800];
-    size_t off = snprintf(json, sizeof(json),
-                          "{\"mouse_mode_0\":%s,\"mouse_mode_1\":%s,\"controllers\":[",
-                          st.controllers[0].mouse_mode ? "true" : "false",
-                          st.controllers[1].mouse_mode ? "true" : "false");
+    static char json[8192];
+    size_t off = snprintf(json, sizeof(json), "{\"controllers\":[");
     bool first = true;
     for (uint8_t i = 0; i < DONGLE_MAX_CONTROLLERS && off < sizeof(json); i++) {
         const dongle_controller_status_t *c = &st.controllers[i];
@@ -288,7 +288,7 @@ static esp_err_t controllers_handler(httpd_req_t *req)
                         "\"connected\":false,\"ready\":false,\"battery_percent\":null,"
                         "\"pressed\":\"\",\"raw\":\"\",\"raw_len\":0,"
                         "\"lt\":0,\"rt\":0,\"lx\":0,\"ly\":0,\"rx\":0,\"ry\":0,"
-                        "\"mouse_mode\":false}",
+                        "\"host_player\":null}",
                         first ? "" : ",", list[i].address, list[i].name,
                         list[i].bonded ? "true" : "false");
         first = false;

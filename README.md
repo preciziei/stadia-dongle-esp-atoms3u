@@ -1,87 +1,138 @@
 # Stadia Controller Dongle
 
-ESP32-S3 firmware that bridges Google Stadia controllers (Bluetooth LE) to a PC
-as a wired **Xbox 360 controller** + **HID mouse** + **HID keyboard**. Wi-Fi
-captive portal for pairing, button remapping, and OTA updates.
+[![Build](https://github.com/preciziei/stadia-dongle-esp-atoms3u/actions/workflows/release.yml/badge.svg)](https://github.com/preciziei/stadia-dongle-esp-atoms3u/actions/workflows/release.yml)
+[![Release](https://img.shields.io/github/v/release/preciziei/stadia-dongle-esp-atoms3u?label=firmware)](https://github.com/preciziei/stadia-dongle-esp-atoms3u/releases/latest)
+[![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-blue.svg)](LICENSE)
 
-Custom fit for **M5Stack AtomS3U**, forked from
-[danzig666/stadia-dongle-esp](https://github.com/danzig666/stadia-dongle-esp)
-(itself from [Scalee/stadia-dongle](https://github.com/Scalee/stadia-dongle)).
+ESP32-S3 firmware for the **M5Stack AtomS3U** that turns up to three Google Stadia controllers into wired **Xbox 360** gamepads. Rumble, Assistant and Capture key actions, a WebHID setup page, and OTA updates are built in.
 
-> ### ⚡ [Flash the firmware](https://preciziei.github.io/stadia-dongle-esp-atoms3u/) · 🛠️ [Configure over USB](https://preciziei.github.io/stadia-dongle-esp-atoms3u/config.html)
-> Both run in desktop Chrome/Edge, talk directly to the device, and need no software installed.
+> [Flash in the browser](https://preciziei.github.io/stadia-dongle-esp-atoms3u/) · [Configure over USB](https://preciziei.github.io/stadia-dongle-esp-atoms3u/config.html)
 
-## Requirements
+Both pages run in desktop Chrome or Edge and talk to the board directly. Nothing is installed on the PC.
 
-- **M5Stack AtomS3U** (ESP32-S3FN8, **8 MB** flash, no PSRAM) or compatible
-  ESP32-S3 with native USB OTG
-- WS2812 RGB status LED on **GPIO 35** (configurable in menuconfig)
-- Onboard user button on **GPIO 41** (active-low, internal pull-up)
-- Onboard IR TX on **GPIO 12** is held low and never driven high
-- Single **USB-A** port used for TinyUSB (GPIO 19/20) — no separate UART bridge
-- [ESP-IDF v6.x](https://github.com/espressif/esp-idf)
+Every push to `main` builds the firmware, publishes a GitHub release named with the UTC build time, and updates the web installer to that same build. The version shown in the Web UI is that timestamp (`YYYYMMDD-HHMM`).
 
-Legacy 4 MB boards can still build with `sdkconfig.defaults.4mb` /
-`partitions_4mb.csv`.
+## Quick start
 
-## Flashing
+1. Put the AtomS3U in download mode and open the [web installer](https://preciziei.github.io/stadia-dongle-esp-atoms3u/). The board has a single USB-A port.
+2. After it reboots, hold **Stadia + Y** on the controller until it flashes orange. A dongle with no saved controllers pairs it on its own.
+3. Open the [USB configuration page](https://preciziei.github.io/stadia-dongle-esp-atoms3u/config.html) to remap Assistant and Capture, manage bonds, or start the Wi-Fi page.
 
-The AtomS3U has a **single USB-A** port (USB OTG + Serial/JTAG on the same
-PHY). Put the board in download mode, then flash over that port.
+The first controller to power on is USB pad 0. The next free pad is used as more controllers connect. Bonds are not pinned to a pad, and the dongle can remember more controllers than it can connect at once (three connected, eight saved).
 
-No software needed: use the
-[web installer](https://preciziei.github.io/stadia-dongle-esp-atoms3u/) in Chrome or
-Edge, connect the AtomS3U USB-A port, and click Install. After reboot the same
-port enumerates as the Xbox/HID device. The
-[USB configuration page](https://preciziei.github.io/stadia-dongle-esp-atoms3u/config.html)
-manages pairing and settings over that cable. The installer is the `docs/`
-folder, deployed to GitHub Pages from this repo.
+## What it does
+
+- Up to **3** Stadia controllers at once, each as an Xbox 360 pad (VID `045E`, PID `028E`) with rumble
+- Assistant and Capture as a keyboard and media keys, remappable per button and press length
+- Setup over USB (WebHID) or over a Wi-Fi page on the dongle
+- OTA firmware upload from the Wi-Fi page
+- USB remote wake from Assistant, Capture, or A while the PC is asleep
+- Status LED in the Stadia orange and white palette
+
+Linux `xpad` treats PID `0289` as an original Xbox pad and misreads these reports, so this firmware uses the Xbox 360 id. Re-plug after flashing so the host drops the old device.
+
+| Stadia | Xbox 360 |
+|---|---|
+| A / B / X / Y | A / B / X / Y |
+| LB / RB | LB / RB |
+| LT / RT | LT / RT |
+| LS / RS click | LS / RS |
+| Sticks and D-pad | Sticks and D-pad |
+| Menu | Start |
+| Options | Back |
+| Stadia | Guide |
+
+Assistant and Capture are not Xbox buttons. Defaults:
+
+| Button | Short press | Long press (1 s) |
+|---|---|---|
+| Assistant | F14 | Start Web UI |
+| Capture | Print Screen | none |
+
+Other actions: F12–F24 (F12 is Steam's screenshot key), Escape, Tab, Space, Enter, Backspace, Insert, Delete, Home, End, Page Up/Down, arrows, volume, mute, and media keys. Hold **Stadia + Options + Menu** for 5 seconds to start the Web UI without remapping.
+
+Each link is negotiated at 11.25–15 ms so three controllers share the radio. Scanning backs off while the Wi-Fi page is up or a controller is already connected. Connections that are already up are not slowed down.
+
+## Hardware
+
+M5Stack AtomS3U (ESP32-S3FN8, 8 MB flash, no PSRAM) or another ESP32-S3 with native USB. ESP-IDF v6.x.
+
+| Function | GPIO | Notes |
+|---|---|---|
+| Status LED | 35 | WS2812. Change the pin and brightness in menuconfig |
+| User button | 41 | Active-low, internal pull-up. Short press starts the Wi-Fi page and requests USB wake when the host is suspended |
+| IR transmitter | 12 | Held low. The LED never fires |
+| USB D− / D+ | 19 / 20 | The only USB port. TinyUSB uses it for the gamepads and the keyboard |
+
+The partition table is dual OTA on 8 MB (`partitions.csv`). A 4 MB build is not supported.
+
+## LED
+
+The onboard LED follows the controller's own colors for the states you see every day. Other colors are reserved for things that need attention. Patterns crossfade in about 300 ms.
+
+| Pattern | Meaning |
+|---|---|
+| Solid orange | Powered, starting up |
+| Pulsing orange | Pairing, or no controller saved yet |
+| Pulsing white | Connecting to a saved controller |
+| Solid white | One controller connected |
+| White with brief dips | Two or three controllers. One dip per controller |
+| White with a cyan tick | Connected, but nothing on the PC has opened the pad |
+| Cyan breathe | Wi-Fi setup page is on and no controller is connected |
+| Magenta breathe | The PC has suspended USB |
+| Magenta fading toward blue | Firmware update |
+| Red pulse | Error |
+| Brief white flash | Remote wake was sent |
+
+## Configuration
+
+**USB page.** Plug in the dongle and open [the configuration page](https://preciziei.github.io/stadia-dongle-esp-atoms3u/config.html). Pairing, button actions, the controller list, and live input go over WebHID. Protocol: [docs/usb-config-protocol.md](docs/usb-config-protocol.md).
+
+**Wi-Fi page.** The access point stays off unless you ask for it, because the radio is shared with the controllers. Start it from Assistant's long press, the Stadia + Options + Menu hold, the onboard button, or the USB page. It turns off after a timeout (default 120 seconds) once a controller is connected. Open `http://192.168.4.1` for status, bonds, button actions, and OTA. The page can be set to start on its own when nothing is bonded.
+
+The firmware string on both pages is the UTC build stamp, the same stamp as the GitHub release.
+
+## Windows pad order
+
+The dongle always exposes three Xbox 360 interfaces, and Windows assigns XInput slots while its driver starts. This build answers the driver's capability request and records the player number Windows sends in the LED command. The Web UI and the USB page show that number as "Windows player N".
+
+That does not by itself force a stable order. After flashing this build once:
+
+1. Open Device Manager, choose View, Show hidden devices.
+2. Uninstall the greyed-out **Xbox 360 Peripherals** entries left by older firmware.
+3. Unplug the dongle and plug it back in.
+
+Then check a gamepad tester: the controller you power on first should be controller 1, the next controller 2, then 3. If a later re-plug still shuffles them, the remaining cause is the host. `menuconfig` has **Stagger Xbox pad start** for that case. It holds each pad's first report until Windows has assigned the previous pad, or 400 ms have passed. It is off by default. Turn it on only after the checklist's 20-cycle test shows that it helps, because Linux does not send those LED commands and will wait out the timeout.
+
+## Linux
+
+Fedora can runtime-suspend the dongle when no program has a pad open. The LED breathes magenta until something opens a pad or the onboard button requests wake. To keep it awake, add `/etc/udev/rules.d/99-stadia-dongle.rules`:
+
+```
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="028e", TEST=="power/control", ATTR{power/control}="on"
+```
+
+Reload udev and re-plug. Magenta means the host really suspended the bus. A white LED with a cyan tick means the host is awake and has not read a report for 3 seconds.
+
+Remote wake needs USB wake enabled in the BIOS and the OS. It is not reliable on every machine. The Stadia button does not send wake, so it can still power the controller off.
 
 ## Build
 
 ```sh
 idf.py set-target esp32s3
 idf.py build
+idf.py -p <PORT> flash
 ```
 
-On Windows, double-click `build_firmware.cmd` for the same build. From a
-terminal, pass `--no-pause` to suppress the final prompt.
+`sdkconfig.defaults` sets NimBLE central (3 links, 8 bonds), TinyUSB, a 240 MHz CPU, the AtomS3U pins, an 8 MB partition table, and silent logs. The firmware version is the UTC minute of the build. CI passes `STADIA_BUILD_TS`; a local build uses `.stadia-build-ts` if that file exists, otherwise the current UTC time.
 
-`sdkconfig.defaults` pre-configures NimBLE central, TinyUSB, 240 MHz CPU,
-AtomS3U pins, and production logging (silent). The default partition table fits
-**8 MB** flash with dual OTA slots (~3.875 MB each).
-
-To log USB attach, suspend, resume, and Xbox IN completions, build with the
-debug overlay (delete `sdkconfig` first if a previous configure cached the
-silent log level):
+To see USB attach, suspend, and report logs, delete `sdkconfig` if a previous configure cached the silent log level, then:
 
 ```sh
 idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.debug" fullclean build
 ```
 
-### Flash
-
-```sh
-idf.py -p <PORT> flash
-```
-
-On Windows, double-click `flash_firmware.cmd` and enter the COM port. It builds
-changed files before flashing. Command-line examples:
-
-```bat
-flash_firmware.cmd COM5
-flash_firmware.cmd COM5 --no-pause
-flash_firmware.cmd COM5 --dry-run --no-pause
-```
-
-To view live ESP32 logs, double-click `monitor_logs.cmd` and enter the COM port,
-or run `monitor_logs.cmd COM5` from a terminal. Press **Ctrl+]** to stop the
-monitor. Run `build_firmware.cmd` first if the build folder is missing. Note:
-with TinyUSB owning the USB device after boot, Serial/JTAG console may only be
-available in download mode or via an external UART if you wire one.
-
-Merged binary for the [ESP Web Tools](https://esphome.github.io/esp-web-tools/)
-installer:
+Merged image for the web installer, written at offset 0:
 
 ```sh
 esptool.py --chip esp32s3 merge_bin \
@@ -93,193 +144,38 @@ esptool.py --chip esp32s3 merge_bin \
   0x20000 build/stadia-dongle.bin
 ```
 
-The application offset must be `0x20000` to match `ota_0` in `partitions.csv`.
+The application offset is `0x20000`, matching `ota_0` in `partitions.csv`. `build/stadia-dongle.bin` is the OTA image.
 
-On Windows, run `create_merged_fw.cmd`. It builds first when required and
-creates `docs/firmware-merged.bin` (default **8MB**). Pass `4MB` or `16MB`
-only when targeting a different flash size header. `flash_merged.cmd COM5`
-writes that image to a device over serial.
+On Windows the same steps are `build_firmware.cmd`, `flash_firmware.cmd`, `create_merged_fw.cmd`, `flash_merged.cmd`, and `monitor_logs.cmd`. Pass `--no-pause` to skip the prompt at the end. With TinyUSB owning the port after boot, the serial console is only available in download mode unless you wire an external UART.
 
-Host the `docs/` folder and open `docs/index.html` in Chrome/Edge.
+Host the `docs/` folder and open `index.html` in Chrome or Edge. `docs/serve.cmd` does that locally. Node tests for the WebHID framing live in `tests/` and run with `node --test "tests/**/*.test.mjs"`.
 
-## Setup
+## Releases
 
-1. Flash the firmware over the AtomS3U USB-A port (download mode), then let it
-   reboot so TinyUSB enumerates the Xbox/HID device on the same cable.
-2. Put the controller in Bluetooth mode (hold **Stadia + Y** until orange
-   flash). A dongle with no bonds auto-pairs it -- no page or app needed.
-3. Once bonded, the dongle auto-connects on future boots.
-4. To remap buttons or change settings, open the
-   [USB configuration page](https://preciziei.github.io/stadia-dongle-esp-atoms3u/config.html)
-   in Chrome/Edge, or start the Wi-Fi Web UI (below). Short-press the onboard
-   button (GPIO 41) to start the Web UI; if the host is sleeping, that press
-   also requests USB remote wake.
+A push to `main` builds the firmware, runs the WebHID tests, and publishes a release tagged `build-YYYYMMDD-HHMM` with:
 
-## Controller Modes
+- `stadia-dongle-<stamp>-merged.bin`, the full image used by the web installer
+- `stadia-dongle-<stamp>-ota.bin`, the image the Wi-Fi page accepts
 
-### Gamepad Mode
+The installer page and the USB page are stamped with the same time. Tagged `v*` pushes still get their own release, with the same timestamped filenames. Build tags older than the newest 20 are deleted. Pull requests build and test only.
 
-The controller appears as an **Xbox 360 Controller for Windows** (VID 0x045E,
-PID 0x028E). Linux `xpad` maps `0x0289` to the original Xbox report layout, so
-this firmware uses the 360 id. Re-plug after flashing so the host drops the
-old identity. Button mapping:
-
-| Stadia          | Xbox 360  |
-|-----------------|-----------|
-| A / B / X / Y   | A / B / X / Y |
-| LB / RB         | LB / RB |
-| LT / RT         | LT / RT (analog) |
-| LS / RS click   | LS / RS |
-| Left Stick      | Left Stick |
-| Right Stick     | Right Stick |
-| D-pad           | D-pad |
-| Menu            | Start |
-| Options         | Back |
-| Stadia button   | Guide |
-
-### Mouse Mode
-
-Hold **Assistant + Capture** for 2 seconds to toggle. Rumble confirms: 2 pulses
-= mouse ON, 3 pulses = controller mode restored. Always starts in controller
-mode after power-on. While active, the Xbox gamepad interface sends neutral
-reports (sticks centered, buttons released) and all input is routed to the HID
-mouse.
-
-| Stadia input   | Mouse action                                       |
-|----------------|----------------------------------------------------|
-| Left stick     | Cursor movement (deadzone, acceleration curve, smoothing) |
-| A              | Left click                                         |
-| B              | Right click                                        |
-| X              | Middle click                                       |
-| D-pad up/down  | Scroll wheel (±1 per press)                        |
-| Right stick Y  | Analog scroll wheel                                |
-| LT (hold)      | Precision mode - cursor speed ÷ 3                  |
-| RT (hold)      | Fast mode - cursor speed × 2                       |
-| Stadia / LB / RB / LS / RS / Menu / Options | Inactive (neutral Xbox reports) |
-
-Mouse reports are driven by a 125 Hz hardware timer for smooth, jitter-free movement.
-
-### Multi-Controller
-
-Up to **2 controllers** can be paired and used concurrently. Each appears as a
-separate Xbox 360 gamepad. Mouse mode and button mappings are per-controller.
-
-BLE connection interval is negotiated for lowest latency:
-
-| Controllers | Connection interval | Update rate |
-|-------------|---------------------|-------------|
-| 1           | 7.5 ms              | ~133 Hz     |
-| 2           | 11 – 15 ms          | ~67 – 91 Hz |
-
-When the Wi-Fi AP is active, BLE scanning pauses to reduce coexistence impact;
-existing controller connections and notifications are unaffected.
-
-### Extra Buttons
-
-Assistant and Capture buttons are exposed as a **boot keyboard + consumer-control**
-HID interface. Defaults:
-
-| Button    | Short press | Long press (1 s) |
-|-----------|-------------|------------------|
-| Assistant | F14         | Start Web UI     |
-| Capture   | PrintScreen | *(none)*         |
-
-All actions are remappable in the Web UI or over USB. Available actions:
-F12–F24 (F12 triggers Steam's screenshot shortcut), PrintScreen, Escape, Space,
-Enter, Tab, Backspace, Insert, Delete, Home, End, Page Up/Down, arrow keys,
-volume/mute, media playback, remote wake only, and Start Web UI.
-
-## USB Configuration (no Wi-Fi needed)
-
-With the dongle plugged into its USB-A port, open the
-[USB configuration page](https://preciziei.github.io/stadia-dongle-esp-atoms3u/config.html)
-in Chrome or Edge. It talks to the dongle over WebHID — pairing, button
-remapping, the controller list, live input and Wi-Fi control, without joining
-the dongle's AP. Protocol details in
-[docs/usb-config-protocol.md](docs/usb-config-protocol.md); designed by
-[jazz-zzzz](https://github.com/jazz-zzzz/stadia-dongle-esp).
-
-## Web UI
-
-Access at `http://192.168.4.1` when the AP is active. Provides:
-
-- BLE and USB connection status, firmware version
-- Per-controller battery, name, address, mouse mode status
-- Live button state and raw report bytes
-- Pairing controls and bonded controller list
-- Button action remapping, long-press duration, Web UI timeout
-- Firmware update upload (OTA) - untested
-- Reboot and disable-Web-UI
-
-The AP never starts on its own: the 2.4 GHz radio is shared with the
-controller links, and USB covers configuration. Start it by holding
-**Assistant** on a connected controller, or from the USB configuration page.
-It auto-disables after a configurable timeout (default 120 s) when a
-controller is connected. The old start-at-boot-until-bonded behaviour can be
-re-enabled with the "auto-start when no controller is bonded" option.
-
-## USB Remote Wake
-
-When the host PC sleeps, pressing **Assistant, Capture, or A** sends a remote
-wake signal via `tud_remote_wakeup()`. The **Stadia/Guide** button intentionally
-does not wake the PC, so it can be held to turn off the controller. Requires
-BIOS/OS USB wake support. Not always working.
-
-### Linux autosuspend
-
-Fedora can runtime-suspend the dongle when nothing has the gamepad open. The
-LED then breathes magenta, and input stays quiet until a program opens the pad
-or the onboard button requests remote wake. That is host policy. To keep the
-dongle awake, add `/etc/udev/rules.d/99-stadia-dongle.rules`:
-
-```
-ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="028e", TEST=="power/control", ATTR{power/control}="on"
-```
-
-Reload udev and re-plug. A magenta LED means the host really suspended the
-bus. A green LED with a short cyan tick means the host is awake but has not
-read an Xbox report for 3 seconds (nothing has the pad open yet).
-
-## LED Reference
-
-Status LED is the onboard WS2812 on **GPIO 35** (AtomS3U). Colors are saturated
-and crossfade over about 300 ms. Patterns use full channel levels so blue,
-cyan, green, and magenta stay distinct on this LED.
-
-| Pattern                        | Meaning |
-|--------------------------------|---------|
-| White breathe                  | Booting |
-| Blue breathe                   | Scanning, no controller connected |
-| Blue fading into cyan          | Scanning + Wi-Fi AP on |
-| Fast cyan pulse                | Pairing or connecting |
-| Green breathe                  | 1 controller in gamepad mode |
-| Green with two bright beats    | 2 controllers in gamepad mode |
-| Green with a cyan tick         | Controller connected, host not reading the pad |
-| Amber breathe                  | At least 1 controller in mouse mode |
-| Magenta breathe                | PC sleeping (USB suspended) |
-| Red pulse                      | Error |
-| Magenta fading into amber      | OTA firmware update |
-| Brief white flash              | Remote wake sent |
-
-## Board button / IR
-
-| Hardware | GPIO | Behavior |
-|----------|------|----------|
-| User button | 41 | Active-low + pull-up. Short press starts Wi-Fi Web UI; also sends USB remote wake when suspended |
-| IR transmitter | 12 | Held as output low — never driven high (IR unused) |
-| USB D− / D+ | 19 / 20 | Native USB OTG for TinyUSB (Xbox + HID) |
+Manual checks that CI cannot do are in [docs/hardware-test-checklist.md](docs/hardware-test-checklist.md).
 
 ## Architecture
 
 ```
-Stadia BLE ──▶ ble_central.c ──▶ bridge.c ──▶ usb_xbox.c ──▶ Host PC (Xbox 360)
+Stadia BLE ──▶ ble_central.c ──▶ bridge.c ──▶ usb_xbox.c ──▶ Host (Xbox 360 × 3)
                    │
-                   ├──▶ button_actions.c ──▶ hid_extra.c ──▶ Host PC (keyboard)
-                   │
-                   └──▶ mouse_mode.c ──▶ hid_mouse.c ──▶ Host PC (mouse, 125 Hz)
+                   └──▶ button_actions.c ──▶ hid_extra.c ──▶ Host (keyboard)
 
-Host PC (rumble) ──▶ xbox_dev.c ──▶ ble_central.c ──▶ Stadia BLE
+Host (rumble, player LED) ──▶ xbox_dev.c ──▶ ble_central.c ──▶ Stadia BLE
 ```
+
+`xbox_dev.c` is a small TinyUSB class driver. The ESP32-S3 has four IN endpoints besides endpoint 0, and this firmware uses all of them: three gamepads and the utility HID. A fourth gamepad would mean dropping the keyboard, the WebHID page, and remote wake.
+
+## Credits
+
+Built for the AtomS3U, forked from [danzig666/stadia-dongle-esp](https://github.com/danzig666/stadia-dongle-esp), which came from [Scalee/stadia-dongle](https://github.com/Scalee/stadia-dongle). The USB configuration protocol was designed by [jazz-zzzz](https://github.com/jazz-zzzz/stadia-dongle-esp).
 
 ## License
 

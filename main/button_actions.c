@@ -2,7 +2,6 @@
 
 #include "config_store.h"
 #include "hid_extra.h"
-#include "mouse_mode.h"
 #include "web_server.h"
 
 #include "esp_log.h"
@@ -146,8 +145,6 @@ static void button_actions_task(void *arg)
     action_button_state_t assistant[DONGLE_MAX_CONTROLLERS] = {0};
     action_button_state_t capture[DONGLE_MAX_CONTROLLERS] = {0};
     int64_t setup_combo_start_us[DONGLE_MAX_CONTROLLERS] = {0};
-    int64_t mouse_combo_start_us[DONGLE_MAX_CONTROLLERS] = {0};
-    bool mouse_combo_triggered[DONGLE_MAX_CONTROLLERS] = {0};
 
     while (1) {
         dongle_config_t cfg;
@@ -181,40 +178,9 @@ static void button_actions_task(void *arg)
                                  cfg.assistant_long_action);
             update_action_button(idx, &capture[idx], st.capture, cfg.capture_short_action,
                                  cfg.capture_long_action);
-
-            // Track mouse combo: both assistant and capture pressed simultaneously.
-            // Timer is checked in the poll loop below to survive brief BLE glitches.
-            bool mouse_combo = st.assistant && st.capture;
-            if (mouse_combo) {
-                if (!mouse_combo_start_us[idx]) {
-                    mouse_combo_start_us[idx] = esp_timer_get_time();
-                    ESP_LOGI(TAG, "usb %u mouse combo started", idx);
-                }
-            } else {
-                // Only reset combo when BOTH buttons are released (prevents
-                // single-frame BLE glitches from cancelling the combo).
-                if (!st.assistant && !st.capture) {
-                    if (mouse_combo_start_us[idx]) {
-                        ESP_LOGI(TAG, "usb %u mouse combo cancelled (both released)", idx);
-                    }
-                    mouse_combo_start_us[idx] = 0;
-                    mouse_combo_triggered[idx] = false;
-                }
-            }
         }
 
         for (uint8_t i = 0; i < DONGLE_MAX_CONTROLLERS; i++) {
-            bool combo_pending = (mouse_combo_start_us[i] != 0 && !mouse_combo_triggered[i]);
-            if (combo_pending) {
-                if (esp_timer_get_time() - mouse_combo_start_us[i] > 2000000) {
-                    mouse_combo_triggered[i] = true;
-                    ESP_LOGI(TAG, "usb %u mouse combo triggering toggle", i);
-                    mouse_mode_toggle(i);
-                } else {
-                    assistant[i].long_sent = true;
-                    capture[i].long_sent = true;
-                }
-            }
             poll_long_action(&assistant[i], cfg.long_press_ms);
             poll_long_action(&capture[i], cfg.long_press_ms);
         }

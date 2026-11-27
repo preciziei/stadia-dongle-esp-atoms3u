@@ -37,7 +37,7 @@ menu "Stadia dongle"
             range 1 255
             help
                 Peak drive after the perceptual curve. 96 keeps the AtomS3U
-                RGB channels saturated enough that blue, cyan, green and
+                RGB channels saturated enough that orange, white, cyan and
                 magenta stay distinct. Lower it if the LED is too bright.
 
     endmenu
@@ -75,5 +75,16 @@ menu "Stadia dongle"
         range 0 48
         help
             GPIO connected to the IR emitter. Held as output low at boot.
+
+    config DONGLE_USB_STAGGERED_PAD_START
+        bool "Stagger Xbox pad start until the previous pad is assigned"
+        default n
+        help
+            Hold the first input report of pad N until Windows has sent an
+            LED-ring (player slot) command for pad N-1, or 400 ms have passed.
+            This is an experiment for the Windows XInput ordering race. Leave
+            it off until a hardware pass shows it produces a stable order.
+            Linux does not send those LED commands, so enabling it delays pads
+            2 and 3 by up to 400 ms after each plug-in.
 
 endmenu

@@ -9,15 +9,13 @@ set "FLASH_SIZE=8MB"
 if "%~1"=="" goto :args_done
 if /I "%~1"=="--no-pause" (
     set "NO_PAUSE=1"
-) else if /I "%~1"=="4MB" (
-    set "FLASH_SIZE=4MB"
 ) else if /I "%~1"=="8MB" (
     set "FLASH_SIZE=8MB"
 ) else if /I "%~1"=="16MB" (
     set "FLASH_SIZE=16MB"
 ) else (
     echo ERROR: Unknown argument "%~1".
-    echo Usage: create_merged_fw.cmd [4MB^|8MB^|16MB] [--no-pause]
+    echo Usage: create_merged_fw.cmd [8MB^|16MB] [--no-pause]
     set "MERGE_RC=1"
     goto :finish
 )

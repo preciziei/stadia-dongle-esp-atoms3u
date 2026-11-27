@@ -2,7 +2,7 @@
 
 This document describes v1 of the Stadia Dongle USB configuration protocol. It
 is used by the WebHID configuration page and does not replace the Xbox 360
-input, rumble, keyboard, or mouse interfaces.
+input, rumble, or keyboard interfaces.
 
 Ported from [jazz-zzzz/stadia-dongle-esp](https://github.com/jazz-zzzz/stadia-dongle-esp),
 which designed and first implemented this protocol.
@@ -139,6 +139,24 @@ Status flag bits:
 | 8 | 1 | bit 0: stop AP on USB suspend; bit 1: auto-start Web UI when no bonds |
 
 Action numbers must match `dongle_action_t` in `config_store.h`.
+
+## Controller record flags
+
+`GET_CONTROLLER` byte 4 (offset 4 of the payload):
+
+- bit 0: bonded
+- bit 1: connected
+- bit 2: ready
+- bit 3: reserved, always 0 (previously mouse mode)
+- bits 4–6: Windows player index from the Xbox LED-ring command, 0 if the host
+  has not assigned a slot yet
+- bit 7: reserved
+
+`GET_INPUT` byte 1:
+
+- bit 0: connected
+- bit 1: ready
+- bit 2: reserved, always 0 (previously mouse mode)
 
 ## Compatibility and limits
 

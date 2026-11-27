@@ -328,7 +328,7 @@ static usb_config_status_t handle_controller(uint8_t *response,
                  ? ((live.bonded ? 1u << 0 : 0) |
                     (live.connected ? 1u << 1 : 0) |
                     (live.ready ? 1u << 2 : 0) |
-                    (live.mouse_mode ? 1u << 3 : 0))
+                    ((live.host_player & 7u) << 4))
                  : (saved.bonded ? 1u << 0 : 0);
     int battery = is_live ? live.battery_percent : -1;
     out[5] = battery >= 0 && battery <= 100 ? (uint8_t)battery : 255;
@@ -358,8 +358,7 @@ static usb_config_status_t handle_input(uint8_t *response,
         }
         input = &controller->stadia;
         flags = (controller->connected ? 1u << 0 : 0) |
-                (controller->ready ? 1u << 1 : 0) |
-                (controller->mouse_mode ? 1u << 2 : 0);
+                (controller->ready ? 1u << 1 : 0);
     } else {
         return USB_CONFIG_STATUS_INVALID_PAYLOAD;
     }

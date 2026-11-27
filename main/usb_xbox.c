@@ -9,7 +9,6 @@
 #include "dongle_config.h"
 #include "dongle_state.h"
 #include "hid_extra.h"
-#include "hid_mouse.h"
 #include "web_server.h"
 #include "xbox_dev.h"
 
@@ -70,12 +69,11 @@ static void enqueue_latest_reports(void)
 
         /*
          * Every advertised Xbox interface needs an explicit state after USB
-         * attach/resume, including interfaces with no BLE controller.  Mouse
-         * mode intentionally keeps the Xbox side neutral.
+         * attach/resume, including interfaces with no BLE controller.
          */
         bridge_send_neutral(c->usb_gamepad_index);
 
-        if (c->connected && c->xbox_valid && !c->mouse_mode) {
+        if (c->connected && c->xbox_valid) {
             ble_to_usb_msg_t msg = {
                 .gamepad_index = c->usb_gamepad_index,
                 .len = DONGLE_XBOX_REPORT_SIZE,
@@ -209,11 +207,19 @@ static const tusb_desc_device_t s_device_desc = {
 
 #define XBOX_FUNCTION_LEN 47
 #define HID_UTILITY_FUNCTION_LEN 33
-#define HID_MOUSE_FUNCTION_LEN 33
 #define XBOX_CFG_LEN (9 + (DONGLE_MAX_CONTROLLERS * XBOX_FUNCTION_LEN) + \
-                     (DONGLE_ENABLE_UTILITY_HID ? HID_UTILITY_FUNCTION_LEN : 0) + \
-                     (DONGLE_ENABLE_MOUSE_HID ? HID_MOUSE_FUNCTION_LEN : 0))
-#define USB_NUM_INTERFACES (DONGLE_MAX_CONTROLLERS + (DONGLE_ENABLE_UTILITY_HID ? 1 : 0) + (DONGLE_ENABLE_MOUSE_HID ? 1 : 0))
+                     (DONGLE_ENABLE_UTILITY_HID ? HID_UTILITY_FUNCTION_LEN : 0))
+#define USB_NUM_INTERFACES (DONGLE_MAX_CONTROLLERS + (DONGLE_ENABLE_UTILITY_HID ? 1 : 0))
+
+/* IN bInterval 1 = 1 ms. A genuine Xbox 360 pad requests 4 ms; polling four
+ * times as often removes up to 3 ms of queueing delay. OUT (rumble) stays at 8 ms. */
+#define XBOX_PAD_DESC(itf, ep_in, ep_out) \
+    0x08, 0x0B, (itf), 0x01, 0xff, 0x5d, 0x01, 0x00, \
+    0x09, 0x04, (itf), 0x00, 0x02, 0xff, 0x5d, 0x01, 0x00, \
+    0x10, 0x21, 0x10, 0x01, 0x01, 0x24, (ep_in), 0x14, \
+    0x03, 0x00, 0x03, 0x13, (ep_out), 0x00, 0x03, 0x00, \
+    0x07, 0x05, (ep_in), 0x03, 0x20, 0x00, 0x01, \
+    0x07, 0x05, (ep_out), 0x03, 0x20, 0x00, 0x08
 
 static const uint8_t s_cfg_desc[XBOX_CFG_LEN] = {
     0x09, 0x02, XBOX_CFG_LEN & 0xff, XBOX_CFG_LEN >> 8,
@@ -223,30 +229,13 @@ static const uint8_t s_cfg_desc[XBOX_CFG_LEN] = {
     0xa0,
     0xfa,
 
-    /* Xbox gamepad 0: interface 0, EP1 IN, EP2 OUT. */
-    0x08, 0x0B, 0x00, 0x01, 0xff, 0x5d, 0x01, 0x00,
-    0x09, 0x04, 0x00, 0x00, 0x02, 0xff, 0x5d, 0x01, 0x00,
-    0x10, 0x21, 0x10, 0x01, 0x01, 0x24, 0x81, 0x14,
-    0x03, 0x00, 0x03, 0x13, 0x02, 0x00, 0x03, 0x00,
-    /* IN: bInterval 1 = 1 ms. A genuine Xbox 360 pad requests 4 ms; polling
-     * four times as often removes up to 3 ms of queueing delay between a BLE
-     * report arriving and the host collecting it. OUT (rumble) stays at 8 ms. */
-    0x07, 0x05, 0x81, 0x03, 0x20, 0x00, 0x01,
-    0x07, 0x05, 0x02, 0x03, 0x20, 0x00, 0x08,
-
-#if DONGLE_MAX_CONTROLLERS >= 2
-    /* Xbox gamepad 1: interface 1, EP4 IN, EP5 OUT. */
-    0x08, 0x0B, 0x01, 0x01, 0xff, 0x5d, 0x01, 0x00,
-    0x09, 0x04, 0x01, 0x00, 0x02, 0xff, 0x5d, 0x01, 0x00,
-    0x10, 0x21, 0x10, 0x01, 0x01, 0x24, 0x84, 0x14,
-    0x03, 0x00, 0x03, 0x13, 0x05, 0x00, 0x03, 0x00,
-    0x07, 0x05, 0x84, 0x03, 0x20, 0x00, 0x01,
-    0x07, 0x05, 0x05, 0x03, 0x20, 0x00, 0x08,
-#endif
+    XBOX_PAD_DESC(0, 0x81, 0x02),
+    XBOX_PAD_DESC(1, 0x84, 0x05),
+    XBOX_PAD_DESC(2, 0x82, 0x03),
 
 #if DONGLE_ENABLE_UTILITY_HID
     /*
-     * HID utility: interface DONGLE_MAX_CONTROLLERS, EP3 IN.
+     * HID utility: interface DONGLE_MAX_CONTROLLERS, EP 0x83 IN.
      * Advertise as a boot keyboard so Windows is more likely to expose and
      * arm this interface for USB wake. The report descriptor still carries
      * keyboard and consumer-control reports for normal operation.
@@ -255,20 +244,13 @@ static const uint8_t s_cfg_desc[XBOX_CFG_LEN] = {
     0x09, 0x04, DONGLE_MAX_CONTROLLERS, 0x00, 0x01, 0x03, 0x01, 0x01, 0x00,
     0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22,
     HID_EXTRA_REPORT_DESC_LEN & 0xff, HID_EXTRA_REPORT_DESC_LEN >> 8,
-     0x07, 0x05, 0x83, 0x03, 0x10, 0x00, 0x0a,
-#endif
-
-#if DONGLE_ENABLE_MOUSE_HID
-    /*
-     * HID mouse: interface DONGLE_MOUSE_ITF_NUM, EP6 IN.
-     */
-    0x08, 0x0B, DONGLE_MOUSE_ITF_NUM, 0x01, 0x03, 0x01, 0x02, 0x00,
-    0x09, 0x04, DONGLE_MOUSE_ITF_NUM, 0x00, 0x01, 0x03, 0x01, 0x02, 0x00,
-    0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22,
-    HID_MOUSE_REPORT_DESC_LEN & 0xff, HID_MOUSE_REPORT_DESC_LEN >> 8,
-    0x07, 0x05, DONGLE_MOUSE_EP_IN, 0x03, DONGLE_MOUSE_EP_SIZE, 0x00, 0x02,
+    0x07, 0x05, 0x83, 0x03, 0x10, 0x00, 0x0a,
 #endif
 };
+
+_Static_assert(XBOX_CFG_LEN == 9 + (3 * 47) + 33, "config descriptor length drifted");
+_Static_assert(sizeof(s_cfg_desc) == XBOX_CFG_LEN, "config descriptor size mismatch");
+_Static_assert(USB_NUM_INTERFACES == 4, "expected 3 Xbox interfaces plus utility HID");
 
 static const char *s_str_desc[] = {
     (char[]){0x09, 0x04},
@@ -362,6 +344,7 @@ void usb_xbox_task(void *arg)
 
 void usb_xbox_init(void)
 {
+    xbox_dev_init();
     s_flag_lock = xSemaphoreCreateMutex();
     configASSERT(s_flag_lock != NULL);
     s_host_idle = false;
@@ -384,9 +367,9 @@ void usb_xbox_init(void)
     };
     ESP_ERROR_CHECK(tinyusb_driver_install(&cfg));
     xTaskCreate(usb_state_monitor_task, "usb_state", 3072, NULL, 2, NULL);
-    ESP_LOGI(TAG, "Xbox USB initialised controllers=%u utility_hid=%u mouse_hid=%u cfg_len=%u",
+    ESP_LOGI(TAG, "Xbox USB initialised controllers=%u utility_hid=%u cfg_len=%u",
              (unsigned)DONGLE_MAX_CONTROLLERS, (unsigned)DONGLE_ENABLE_UTILITY_HID,
-             (unsigned)DONGLE_ENABLE_MOUSE_HID, (unsigned)XBOX_CFG_LEN);
+             (unsigned)XBOX_CFG_LEN);
 }
 
 #define MS_OS_20_SET_HEADER_DESCRIPTOR        0x00
@@ -397,6 +380,13 @@ void usb_xbox_init(void)
 #define MS_OS_20_FUNCTION_LEN 0x1C
 #define MS_OS_20_DESC_LEN (0x0A + 0x08 + (DONGLE_MAX_CONTROLLERS * MS_OS_20_FUNCTION_LEN))
 
+#define MS_OS_20_PAD(itf) \
+    U16_TO_U8S_LE(0x0008), U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_FUNCTION), \
+    (itf), 0, U16_TO_U8S_LE(MS_OS_20_FUNCTION_LEN), \
+    U16_TO_U8S_LE(0x0014), U16_TO_U8S_LE(MS_OS_20_FEATURE_COMPATBLE_ID), \
+    'X', 'U', 'S', 'B', '2', '0', 0x00, 0x00, \
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+
 const uint8_t s_ms_os_20_desc[MS_OS_20_DESC_LEN] = {
     U16_TO_U8S_LE(0x000A), U16_TO_U8S_LE(MS_OS_20_SET_HEADER_DESCRIPTOR),
     U32_TO_U8S_LE(0x06030000), U16_TO_U8S_LE(MS_OS_20_DESC_LEN),
@@ -404,20 +394,13 @@ const uint8_t s_ms_os_20_desc[MS_OS_20_DESC_LEN] = {
     U16_TO_U8S_LE(0x0008), U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_CONFIGURATION),
     0, 0, U16_TO_U8S_LE(MS_OS_20_DESC_LEN - 0x0A),
 
-    U16_TO_U8S_LE(0x0008), U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_FUNCTION),
-    0, 0, U16_TO_U8S_LE(MS_OS_20_FUNCTION_LEN),
-    U16_TO_U8S_LE(0x0014), U16_TO_U8S_LE(MS_OS_20_FEATURE_COMPATBLE_ID),
-    'X', 'U', 'S', 'B', '2', '0', 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-
-#if DONGLE_MAX_CONTROLLERS >= 2
-    U16_TO_U8S_LE(0x0008), U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_FUNCTION),
-    1, 0, U16_TO_U8S_LE(MS_OS_20_FUNCTION_LEN),
-    U16_TO_U8S_LE(0x0014), U16_TO_U8S_LE(MS_OS_20_FEATURE_COMPATBLE_ID),
-    'X', 'U', 'S', 'B', '2', '0', 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-#endif
+    MS_OS_20_PAD(0),
+    MS_OS_20_PAD(1),
+    MS_OS_20_PAD(2),
 };
+
+_Static_assert(sizeof(s_ms_os_20_desc) == MS_OS_20_DESC_LEN, "MS OS 2.0 descriptor size mismatch");
+_Static_assert(MS_OS_20_DESC_LEN == 0x0A + 0x08 + (3 * 0x1C), "MS OS 2.0 length drifted");
 
 #define BOS_TOTAL_LEN (TUD_BOS_DESC_LEN + TUD_BOS_MICROSOFT_OS_DESC_LEN)
 

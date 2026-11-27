@@ -1,5 +1,6 @@
 {
   "name": "Stadia BT Dongle",
+  "version": "__BUILD_STAMP__",
   "new_install_prompt_erase": false,
   "builds": [
     {
