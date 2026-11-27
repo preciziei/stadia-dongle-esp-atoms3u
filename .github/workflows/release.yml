@@ -113,6 +113,9 @@ jobs:
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download firmware artifact
         uses: actions/download-artifact@v4
         with:
@@ -121,6 +124,7 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TS: ${{ needs.prepare.outputs.ts }}
           SHORT_SHA: ${{ needs.prepare.outputs.sha }}
         run: |
@@ -165,6 +169,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           mapfile -t old < <(gh release list --limit 200 --json tagName,publishedAt \
