@@ -4,7 +4,7 @@
 [![Release](https://img.shields.io/github/v/release/preciziei/stadia-dongle-esp-atoms3u?label=firmware)](https://github.com/preciziei/stadia-dongle-esp-atoms3u/releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-blue.svg)](LICENSE)
 
-ESP32-S3 firmware for the **M5Stack AtomS3U** that turns up to three Google Stadia controllers into wired **Xbox 360** gamepads. Rumble, Assistant and Capture key actions, a WebHID setup page, and OTA updates are built in.
+ESP32-S3 firmware for the **M5Stack AtomS3U** that turns up to three Google Stadia controllers into wired **Xbox 360** gamepads, or into standard HID gamepads for Android. Rumble, Assistant and Capture key actions, a WebHID setup page, and OTA updates are built in. Rumble and the keyboard exist in XInput mode.
 
 > [Flash in the browser](https://preciziei.github.io/stadia-dongle-esp-atoms3u/) · [Configure over USB](https://preciziei.github.io/stadia-dongle-esp-atoms3u/config.html)
 
@@ -22,7 +22,7 @@ The first controller to power on is USB pad 0. The next free pad is used as more
 
 ## What it does
 
-- Up to **3** Stadia controllers at once, each as an Xbox 360 pad (VID `045E`, PID `028E`) with rumble
+- Up to **3** Stadia controllers at once, each as an Xbox 360 pad (VID `045E`, PID `028E`) with rumble, or as a separate standard HID gamepad (VID `1209`, PID `57A1`) for Android
 - Assistant and Capture as a keyboard and media keys, remappable per button and press length
 - Setup over USB (WebHID) or over a Wi-Fi page on the dongle
 - OTA firmware upload from the Wi-Fi page
@@ -60,7 +60,7 @@ M5Stack AtomS3U (ESP32-S3FN8, 8 MB flash, no PSRAM) or another ESP32-S3 with nat
 | Function | GPIO | Notes |
 |---|---|---|
 | Status LED | 35 | WS2812. Change the pin and brightness in menuconfig |
-| User button | 41 | Active-low, internal pull-up. Short press starts the Wi-Fi page and requests USB wake when the host is suspended |
+| User button | 41 | Active-low, internal pull-up. Release before 0.5 s starts the Wi-Fi page and requests USB wake when the host is suspended. Hold 0.5 s to switch XInput and HID |
 | IR transmitter | 12 | Held low. The LED never fires |
 | USB D− / D+ | 19 / 20 | The only USB port. TinyUSB uses it for the gamepads and the keyboard |
 
@@ -75,9 +75,12 @@ The onboard LED follows the controller's own colors for the states you see every
 | Solid orange | Powered, starting up |
 | Pulsing orange | Pairing, or no controller saved yet |
 | Pulsing white | Connecting to a saved controller |
-| Solid white | One controller connected |
-| White with brief dips | Two or three controllers. One dip per controller |
-| White with a cyan tick | Connected, but nothing on the PC has opened the pad |
+| Solid white | One controller connected, XInput |
+| White with brief dips | Two or three controllers, XInput. One dip per controller |
+| Solid orange with the same dips | Controllers connected in HID mode |
+| White or orange with a cyan tick | Connected, but nothing on the host has opened the pad |
+| Five green strobes | Switching to XInput |
+| Five orange strobes | Switching to HID |
 | Cyan breathe | Wi-Fi setup page is on and no controller is connected |
 | Magenta breathe | The PC has suspended USB |
 | Magenta fading toward blue | Firmware update |
@@ -92,9 +95,15 @@ The onboard LED follows the controller's own colors for the states you see every
 
 The firmware string on both pages is the UTC build stamp, the same stamp as the GitHub release.
 
+## USB mode
+
+XInput is the default, and it is the mode Windows and Linux should use. Android groups identical XInput interfaces into one pad, so hold the onboard button for 0.5 s to switch to standard HID. The LED strobes (green toward XInput, orange toward HID) and the board restarts. A short press still opens the Wi-Fi page.
+
+HID mode exposes three gamepad interfaces and nothing else, so Android does not invent a ghost device. There is no rumble and no keyboard or WebHID in that mode. The Wi-Fi page still works. The choice is stored in flash. Switching clears the recovery boot counter first, so toggling a few times does not forget paired controllers.
+
 ## Windows pad order
 
-The dongle always exposes three Xbox 360 interfaces, and Windows assigns XInput slots while its driver starts. This build answers the driver's capability request and records the player number Windows sends in the LED command. The Web UI and the USB page show that number as "Windows player N".
+XInput mode always exposes three Xbox 360 interfaces, and Windows assigns XInput slots while its driver starts. This build answers the driver's capability request and records the player number Windows sends in the LED command. The Web UI and the USB page show that number as "Windows player N".
 
 That does not by itself force a stable order. After flashing this build once:
 
@@ -164,7 +173,7 @@ Manual checks that CI cannot do are in [docs/hardware-test-checklist.md](docs/ha
 ## Architecture
 
 ```
-Stadia BLE ──▶ ble_central.c ──▶ bridge.c ──▶ usb_xbox.c ──▶ Host (Xbox 360 × 3)
+Stadia BLE ──▶ ble_central.c ──▶ bridge.c ──▶ usb_xbox.c ──▶ Host (Xbox 360 × 3, or HID gamepad × 3)
                    │
                    └──▶ button_actions.c ──▶ hid_extra.c ──▶ Host (keyboard)
 

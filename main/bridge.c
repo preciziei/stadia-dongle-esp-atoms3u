@@ -30,6 +30,7 @@
  */
 
 #include "bridge.h"
+#include "usb_mode.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -79,18 +80,34 @@ void stadia_pressed_names(const stadia_controller_state_t *s, char *out, size_t 
     if (s->capture) append_name(out, out_len, "capture");
 }
 
-void bridge_send_neutral(uint8_t gamepad_index)
+void bridge_send_report(uint8_t gamepad_index, const uint8_t *data, size_t len)
 {
     ble_to_usb_msg_t msg = {
         .gamepad_index = gamepad_index,
-        .data = {0x00, 0x14},
-        .len = DONGLE_XBOX_REPORT_SIZE,
+        .len = len,
     };
+    if (!data || len > sizeof(msg.data)) return;
+    if (len) memcpy(msg.data, data, len);
     if (xQueueSendToBack(ble_to_usb_queue, &msg, 0) != pdTRUE) {
         ble_to_usb_msg_t dummy;
         xQueueReceive(ble_to_usb_queue, &dummy, 0);
         xQueueSendToBack(ble_to_usb_queue, &msg, 0);
     }
+}
+
+void bridge_send_neutral(uint8_t gamepad_index)
+{
+    uint8_t report[DONGLE_XBOX_REPORT_SIZE] = {0};
+    size_t len;
+    if (usb_mode_get() == USB_MODE_HID) {
+        stadia_hid_neutral(report);
+        len = DONGLE_HID_REPORT_SIZE;
+    } else {
+        report[0] = 0x00;
+        report[1] = 0x14;
+        len = DONGLE_XBOX_REPORT_SIZE;
+    }
+    bridge_send_report(gamepad_index, report, len);
 }
 
 // Stadia hat-switch (0–7) → Xbox 360 d-pad bitmask (bits 0=Up,1=Down,2=Left,3=Right)
@@ -197,4 +214,59 @@ void stadia_to_xbox360(const uint8_t *s, uint8_t *x)
     x[10] = (uint8_t)(rx & 0xFF); x[11] = (uint8_t)(rx >> 8);
     x[12] = (uint8_t)(ry & 0xFF); x[13] = (uint8_t)(ry >> 8);
     // bytes 14–19 already zero
+}
+
+/*
+ * Standard HID gamepad, Xbox One BT / Android Generic.kl button order.
+ * 16 one-bit buttons, usages are 1-based; unused usages stay 0:
+ *   1 A, 2 B, 4 X, 5 Y, 7 LB, 8 RB,
+ *   11 Select/View (Options), 12 Start/Menu, 13 Guide (Stadia),
+ *   14 L3, 15 R3
+ * Then a hat nibble (0..7, null = 8) plus 4 bits of padding,
+ * X/Y/Z/Rz as the raw 0–255 stick bytes (center 0x80; HID Y is not inverted),
+ * and Brake/Accelerator as LT/RT.
+ * Neutral is not all zeros: sticks sit at 0x80 and the hat is 8.
+ */
+void stadia_hid_neutral(uint8_t *out)
+{
+    if (!out) return;
+    memset(out, 0, DONGLE_HID_REPORT_SIZE);
+    out[2] = 0x08;
+    out[3] = 0x80;
+    out[4] = 0x80;
+    out[5] = 0x80;
+    out[6] = 0x80;
+}
+
+void stadia_to_hid_gamepad(const uint8_t *s, uint8_t *out)
+{
+    if (!out) return;
+    if (!s) {
+        stadia_hid_neutral(out);
+        return;
+    }
+
+    uint16_t buttons = 0;
+    if (s[2] & (1 << 6)) buttons |= 1u << 0;  /* A  = usage 1 */
+    if (s[2] & (1 << 5)) buttons |= 1u << 1;  /* B  = usage 2 */
+    if (s[2] & (1 << 4)) buttons |= 1u << 3;  /* X  = usage 4 */
+    if (s[2] & (1 << 3)) buttons |= 1u << 4;  /* Y  = usage 5 */
+    if (s[2] & (1 << 2)) buttons |= 1u << 6;  /* LB = usage 7 */
+    if (s[2] & (1 << 1)) buttons |= 1u << 7;  /* RB = usage 8 */
+    if (s[1] & (1 << 6)) buttons |= 1u << 10; /* Select/View = usage 11 */
+    if (s[1] & (1 << 5)) buttons |= 1u << 11; /* Start/Menu  = usage 12 */
+    if (s[1] & (1 << 4)) buttons |= 1u << 12; /* Guide       = usage 13 */
+    if (s[2] & (1 << 0)) buttons |= 1u << 13; /* L3          = usage 14 */
+    if (s[1] & (1 << 7)) buttons |= 1u << 14; /* R3          = usage 15 */
+
+    memset(out, 0, DONGLE_HID_REPORT_SIZE);
+    out[0] = (uint8_t)(buttons & 0xff);
+    out[1] = (uint8_t)(buttons >> 8);
+    out[2] = (s[0] < 8) ? (uint8_t)(s[0] & 0x0f) : 0x08;
+    out[3] = s[3];
+    out[4] = s[4];
+    out[5] = s[5];
+    out[6] = s[6];
+    out[7] = s[7];
+    out[8] = s[8];
 }

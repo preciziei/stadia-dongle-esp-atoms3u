@@ -6,8 +6,8 @@
 #include "dongle_config.h"
 #include "dongle_state.h"
 
-// ble_to_usb: 20-byte Xbox 360 input reports translated from Stadia BLE notifications
-// usb_to_ble: 4-byte Stadia rumble payloads from Xbox 360 rumble output reports
+// ble_to_usb: Xbox 360 reports (20 bytes) or HID gamepad reports (9 bytes).
+// usb_to_ble: 4-byte Stadia rumble payloads from Xbox 360 rumble output reports.
 extern QueueHandle_t ble_to_usb_queue;
 extern QueueHandle_t usb_to_ble_queue;
 
@@ -24,7 +24,10 @@ typedef struct {
 } usb_to_ble_msg_t;
 
 void bridge_init(void);
+void bridge_send_report(uint8_t gamepad_index, const uint8_t *data, size_t len);
 void bridge_send_neutral(uint8_t gamepad_index);
 void stadia_parse_state(const uint8_t *stadia, size_t len, stadia_controller_state_t *out);
 void stadia_to_xbox360(const uint8_t *stadia, uint8_t *xbox);
+void stadia_hid_neutral(uint8_t *out);
+void stadia_to_hid_gamepad(const uint8_t *stadia, uint8_t *out);
 void stadia_pressed_names(const stadia_controller_state_t *state, char *out, size_t out_len);

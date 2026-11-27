@@ -28,6 +28,7 @@
 #include "dongle_state.h"
 #include "hid_extra.h"
 #include "status_led.h"
+#include "usb_mode.h"
 #include "web_server.h"
 
 static const char *TAG = "MAIN";
@@ -91,6 +92,7 @@ void app_main(void)
         ESP_ERROR_CHECK(ret);
     }
     ESP_ERROR_CHECK(ret);
+    usb_mode_init();
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 

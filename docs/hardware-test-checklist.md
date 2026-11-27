@@ -10,7 +10,7 @@ and Gamepad before trusting a build, and the sections your change touches.
 - [ ] Windows Device Manager shows three Xbox 360 pads and one HID keyboard. After the first flash of this 3-pad build, remove greyed-out "Xbox 360 Peripherals" entries (View, Show hidden devices) and re-plug once.
 - [ ] On Fedora, `dmesg` shows `xpad` bind three Xbox 360 interfaces and does not repeat USB disconnects.
 - [ ] `joy.cpl` or a gamepad tester shows no phantom input at rest.
-- [ ] Onboard button (GPIO 41) starts the Wi-Fi Web UI. When the host is suspended it also requests remote wake.
+- [ ] Onboard button (GPIO 41): release before 0.5 s starts the Wi-Fi Web UI. When the host is suspended it also requests remote wake.
 - [ ] IR pin (GPIO 12) stays inactive.
 - [ ] Web UI and USB config page show the firmware version as the UTC build stamp (`YYYYMMDD-HHMM`).
 
@@ -55,12 +55,21 @@ Do this in Edge at a gamepad tester, with the staggered-start option still off.
 - [ ] Solid orange while the dongle is booting.
 - [ ] Pulsing orange while pairing, and while no controller is bonded.
 - [ ] Pulsing white while connecting to a bonded controller.
-- [ ] Solid white with one controller. Two brief dips with two controllers, three with three.
+- [ ] Solid white with one controller in XInput. Two brief dips with two controllers, three with three.
+- [ ] HID mode uses the same dip count in orange. The cyan host-idle tick still appears.
 - [ ] A cyan tick on the white pattern when a controller is connected and nothing has the pad open.
 - [ ] Cyan breathe when the Wi-Fi page is on and no controller is connected.
 - [ ] Magenta breathe only while the host has suspended USB.
 - [ ] Magenta fading toward blue during an OTA update.
 - [ ] A short white flash when remote wake is sent.
+
+## USB mode switch (G41)
+
+- [ ] Hold G41 for 0.5 s. The LED strobes immediately (5 green = switching to XInput, 5 orange = switching to HID) and the release does nothing.
+- [ ] After the restart the dongle enumerates in the other mode. XInput stays `045e:028e` with three Xbox pads plus the keyboard. HID is `1209:57a1` with three gamepads named Gamepad 1, 2, and 3, and no keyboard.
+- [ ] On Android 15, hardwaretester.com and RetroArch show one distinct pad per connected controller. No ghost "Microsoft Controller" pad. Two controllers do not share one pad's input.
+- [ ] Rumble and Assistant/Capture key actions work after switching back to XInput. They do nothing in HID mode. The Wi-Fi page works in both.
+- [ ] Pairings survive several toggles. The recovery boot counter must not forget bonds.
 
 ## Power
 

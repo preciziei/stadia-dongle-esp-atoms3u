@@ -8,6 +8,7 @@
 
 #include "bridge.h"
 #include "button_actions.h"
+#include "usb_mode.h"
 #include "controller_manager.h"
 #include "dongle_config.h"
 #include "dongle_state.h"
@@ -1169,15 +1170,12 @@ static int gap_event_fn(struct ble_gap_event *event, void *arg)
         dongle_state_update_controller_reports(slot->slot_index, raw, len, &state, xbox);
         button_actions_on_state(slot->usb_gamepad_index, &state);
 
-        ble_to_usb_msg_t msg = {
-            .gamepad_index = slot->usb_gamepad_index,
-            .len = DONGLE_XBOX_REPORT_SIZE,
-        };
-        memcpy(msg.data, xbox, sizeof(xbox));
-        if (xQueueSendToBack(ble_to_usb_queue, &msg, 0) != pdTRUE) {
-            ble_to_usb_msg_t dummy;
-            xQueueReceive(ble_to_usb_queue, &dummy, 0);
-            xQueueSendToBack(ble_to_usb_queue, &msg, 0);
+        if (usb_mode_get() == USB_MODE_HID) {
+            uint8_t hid[DONGLE_HID_REPORT_SIZE];
+            stadia_to_hid_gamepad(raw, hid);
+            bridge_send_report(slot->usb_gamepad_index, hid, sizeof(hid));
+        } else {
+            bridge_send_report(slot->usb_gamepad_index, xbox, DONGLE_XBOX_REPORT_SIZE);
         }
         break;
     }

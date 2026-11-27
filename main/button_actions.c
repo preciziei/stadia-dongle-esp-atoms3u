@@ -2,6 +2,7 @@
 
 #include "config_store.h"
 #include "hid_extra.h"
+#include "usb_mode.h"
 #include "web_server.h"
 
 #include "esp_log.h"
@@ -80,6 +81,11 @@ static void run_action(uint8_t gamepad_index, uint8_t action)
 {
     uint8_t key = action_to_key(action);
     uint16_t consumer = action_to_consumer(action);
+    if ((key || consumer) && usb_mode_get() != USB_MODE_XINPUT) {
+        ESP_LOGI(TAG, "usb %u skipped %s: keyboard is XInput-only",
+                 gamepad_index, config_store_action_name(action));
+        return;
+    }
     if (key) {
         bool sent = hid_extra_send_key_press(0, key);
         vTaskDelay(pdMS_TO_TICKS(20));

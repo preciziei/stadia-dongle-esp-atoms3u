@@ -9,6 +9,8 @@
 #include "dongle_config.h"
 #include "dongle_state.h"
 #include "hid_extra.h"
+#include "hid_gamepad.h"
+#include "usb_mode.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -196,10 +198,7 @@ static bool xbox_xfer_cb(uint8_t rhport, uint8_t ep_addr,
     }
 
     if (ep_addr == gp->ep_in) {
-        if (result == XFER_RESULT_SUCCESS) {
-            mark_in_activity();
-            s_in_complete_count++;
-        }
+        if (result == XFER_RESULT_SUCCESS) xbox_note_in_complete();
         return true;
     }
 
@@ -245,6 +244,13 @@ static usbd_class_driver_t const s_xbox_driver = {
 
 usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count)
 {
+    if (usb_mode_get() == USB_MODE_HID) {
+        static usbd_class_driver_t hid_drivers[1];
+        hid_drivers[0] = *hid_gamepad_class_driver();
+        *driver_count = 1;
+        return hid_drivers;
+    }
+
     static usbd_class_driver_t drivers[2];
     uint8_t count = 0;
     drivers[count++] = s_xbox_driver;
@@ -262,7 +268,8 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
 
     /* TinyUSB delivers every vendor request here, including the per-interface
      * requests from xusb22. Those used to be answered with zeros. */
-    if (request->bRequest == 1 && request->wIndex == 7) {
+    if (usb_mode_get() == USB_MODE_XINPUT &&
+        request->bRequest == 1 && request->wIndex == 7) {
         extern const uint8_t s_ms_os_20_desc[];
         uint16_t total_len;
         memcpy(&total_len, s_ms_os_20_desc + 8, 2);
@@ -332,6 +339,12 @@ int xbox_send_report(uint8_t gamepad_index, const uint8_t *report, size_t len)
 void xbox_note_bus_activity(void)
 {
     mark_in_activity();
+}
+
+void xbox_note_in_complete(void)
+{
+    mark_in_activity();
+    s_in_complete_count++;
 }
 
 uint32_t xbox_us_since_in_complete(void)

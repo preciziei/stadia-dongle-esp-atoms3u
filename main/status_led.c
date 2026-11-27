@@ -50,6 +50,7 @@ typedef struct {
 static rmt_channel_handle_t s_led_chan;
 static rmt_encoder_handle_t s_led_encoder;
 static int64_t s_wake_flash_until_us;
+static volatile bool s_mode_animating;
 
 static const rmt_symbol_word_t ws2812_zero = {
     .level0 = 1,
@@ -196,6 +197,8 @@ static rgb_t connected_color(const dongle_status_t *st, uint32_t elapsed_ms)
 
     uint32_t tick = elapsed_ms % 2800;
     if (st->usb_host_idle && tick < 120) return rgb(0, level, level);
+    /* HID mode keeps the dip count, tinted orange so the mode is visible. */
+    if (usb_mode_get() == USB_MODE_HID) return rgb(level, (uint8_t)(level / 3), 0);
     return rgb(level, level, level);
 }
 
@@ -322,6 +325,10 @@ static void status_led_task(void *arg)
     bool started = false;
 
     while (1) {
+        if (s_mode_animating) {
+            vTaskDelay(pdMS_TO_TICKS(LED_TASK_PERIOD_MS));
+            continue;
+        }
         dongle_status_t st;
         dongle_state_get_status(&st);
 
@@ -368,4 +375,21 @@ void status_led_init(void)
 void status_led_flash_remote_wake(void)
 {
     s_wake_flash_until_us = esp_timer_get_time() + WAKE_FLASH_US;
+}
+
+void status_led_play_mode_change(usb_mode_t mode)
+{
+    s_mode_animating = true;
+    vTaskDelay(pdMS_TO_TICKS(LED_TASK_PERIOD_MS * 2));
+
+    rgb_t on = (mode == USB_MODE_HID) ? rgb(255, 85, 0) : rgb(0, 255, 0);
+    rgb_t off = rgb(0, 0, 0);
+    for (int i = 0; i < 5; i++) {
+        led_set(encode_rgb(on));
+        vTaskDelay(pdMS_TO_TICKS(120));
+        led_set(encode_rgb(off));
+        vTaskDelay(pdMS_TO_TICKS(120));
+    }
+    usb_mode_set_and_restart(mode);
+    s_mode_animating = false;
 }
